@@ -27,7 +27,8 @@
     --on-ink:#FFFFFF;
     --on-accent:#FFFFFF;
     --cta-glow:rgba(166,94,46,.28);
-    --bar:rgba(247,243,238,.94);
+    --bar:#f7f3ee;
+    --hot:#bc5330; --hot-soft:#f6e3da; --ice:#3a6fae; --ice-soft:#dfe8f4;
     --toast-bg:rgba(36,31,26,.94);
     --toast-ink:#FFFFFF;
     --ok-ink:#2C6B4A;
@@ -58,7 +59,8 @@
     --on-ink:#17140F;
     --on-accent:#17140F;
     --cta-glow:rgba(0,0,0,.45);
-    --bar:rgba(20,17,14,.94);
+    --bar:#14110e;
+    --hot:#e8916a; --hot-soft:#3a2419; --ice:#86b3e4; --ice-soft:#182635;
     --toast-bg:rgba(242,235,227,.96); --toast-ink:#17140F;
     --ok-ink:#7FCFA1; --ok-ink-2:#6FC493; --ok-line:#2A4234;
     --warn-ink:#E0B268; --warn-line:#453520;
@@ -82,7 +84,8 @@
     --on-ink:#FFFFFF;
     --on-accent:#FFFFFF;
     --cta-glow:rgba(20,83,52,.26);
-    --bar:rgba(241,246,241,.94);
+    --bar:#f1f6f1;
+    --hot:#bc5330; --hot-soft:#f5e4dc; --ice:#3a6fae; --ice-soft:#dee8f3;
     --toast-bg:rgba(17,38,27,.94); --toast-ink:#FFFFFF;
     --ok-ink:#155B3A; --ok-ink-2:#2A7551; --ok-line:#BFDDC9;
     --warn-ink:#7E5713; --warn-line:#E4D3AC;
@@ -134,7 +137,9 @@
     opacity:0;pointer-events:none;transform:translateY(6px);transition:opacity .22s ease,transform .22s ease;}
   .screen.active{opacity:1;pointer-events:auto;transform:none;}
   .scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
-    padding:0 20px calc(var(--tab-h) + env(safe-area-inset-bottom,0px) + 24px);}
+    padding:10px 20px calc(var(--tab-h) + env(safe-area-inset-bottom,0px) + 24px);
+    -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10px);
+    mask-image:linear-gradient(to bottom,transparent 0,#000 10px);}
   .scroll.notabs{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 28px);}
   .appbar{padding:8px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;}
   .appbar h1{margin:0;font-size:27px;font-weight:800;letter-spacing:-.5px;}
@@ -217,6 +222,13 @@
     border-radius:16px;margin-bottom:9px;transition:transform .12s ease;width:100%;text-align:left;}
   .row:active{transform:scale(.99);}
   .emo{flex:0 0 42px;height:42px;border-radius:13px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;font-size:20px;}
+  .tempb{flex:0 0 42px;height:42px;border-radius:13px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:1px;font-size:10.5px;font-weight:800;letter-spacing:.4px;line-height:1;}
+  .tempb.hot{background:var(--hot-soft);color:var(--hot);}
+  .tempb.ice{background:var(--ice-soft);color:var(--ice);}
+  .tempb.both{background:var(--accent-soft);color:var(--accent);}
+  .tempb.both i{font-style:normal;font-size:9px;letter-spacing:.2px;}
+  .tempb.none{background:var(--accent-soft);color:var(--accent);font-size:18px;}
   .row .meta{flex:1;min-width:0;}
   .row .meta b{display:block;font-size:15px;font-weight:700;letter-spacing:-.2px;}
   .row .meta span{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -226,7 +238,8 @@
   .row.on .checkc{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
   .selbar{padding:8px 20px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .selbar .cnt{font-size:19px;font-weight:800;letter-spacing:-.4px;}
-  .linkbtn{font-size:14.5px;font-weight:700;color:var(--accent);padding:8px 2px;white-space:nowrap;}
+  .linkbtn{font-size:14.5px;font-weight:700;color:var(--accent);padding:10px 8px;white-space:nowrap;
+    min-height:44px;display:inline-flex;align-items:center;justify-content:center;}
   .linkbtn.mute{color:var(--muted);}
   .selactions{position:absolute;left:0;right:0;bottom:0;z-index:66;display:none;gap:10px;
     padding:12px 20px calc(env(safe-area-inset-bottom,0px) + 12px);
@@ -251,10 +264,13 @@
   .track i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .3s ease;}
   .count{font-size:13px;font-weight:700;color:var(--ink-2);font-variant-numeric:tabular-nums;}
 
-  .card-wrap{flex:1;min-height:0;padding:0 20px 14px;perspective:1400px;}
-  .card{height:100%;border-radius:26px;box-shadow:var(--shadow);overflow:hidden;transition:transform .18s ease;display:flex;flex-direction:column;}
+  .card-wrap{flex:1;min-height:0;padding:0 20px 14px;perspective:1400px;
+    display:flex;flex-direction:column;justify-content:center;}
+  .card{height:auto;max-height:100%;border-radius:26px;box-shadow:var(--shadow);overflow:hidden;transition:transform .18s ease;display:flex;flex-direction:column;}
+  .card.full{height:100%;}
+  .card.full > .face{flex:1 1 auto;}
   .card.flipping{transform:rotateY(90deg);}
-  .face{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+  .face{flex:0 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
   .front{position:relative;background:linear-gradient(160deg,var(--card-1) 0%,var(--card-2) 60%,var(--card-3) 100%);color:rgb(var(--card-ink));height:100%;
     display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 26px;gap:14px;}
   .front .cat{font-size:12px;font-weight:700;letter-spacing:1.4px;color:rgba(var(--card-ink),.6);}
@@ -264,7 +280,7 @@
   .tag{font-size:11.5px;font-weight:700;padding:6px 11px;border-radius:999px;background:rgba(var(--card-ink),.13);color:rgba(var(--card-ink),.85);}
   .front .hint{position:absolute;left:26px;right:26px;bottom:28px;font-size:12.5px;color:rgba(var(--card-ink),.45);}
 
-  .back{background:var(--surface);padding:24px 22px 26px;min-height:100%;}
+  .back{background:var(--surface);padding:24px 22px 26px;}
   .back h2{margin:0 0 2px;font-size:22px;font-weight:800;letter-spacing:-.5px;}
   .back .sub{font-size:12.5px;color:var(--muted);margin-bottom:18px;}
   .blk{margin-bottom:18px;}
@@ -1163,11 +1179,18 @@ function renderHome(){
   bindRows("#reviewList");
 }
 
+/* 목록에서 HOT / ICE 를 한눈에 구분하게 하는 배지 */
+function tempBadge(d){
+  const t = (d.temp || "").toUpperCase();
+  if(t === "HOT") return `<span class="tempb hot">HOT</span>`;
+  if(t === "ICE") return `<span class="tempb ice">ICE</span>`;
+  if(t.includes("HOT") && t.includes("ICE")) return `<span class="tempb both"><i>ICE</i><i>HOT</i></span>`;
+  return `<span class="tempb none">${catEmo(d.cat)}</span>`;
+}
 function rowHTML(d, pill, selectable){
   const on = selectable && state.sel.has(d.id);
   return `<button class="row${on?" on":""}" data-id="${esc(d.id)}">
-    ${selectable ? `<span class="checkc">✓</span>`
-                 : `<span class="emo">${catEmo(d.cat)}</span>`}
+    ${selectable ? `<span class="checkc">✓</span>` : tempBadge(d)}
     <span class="meta"><b>${esc(d.name)}</b><span>${d.ing.slice(0,3).map(i=>esc(i[0])).join(" · ")}</span></span>
     ${selectable ? "" : (pill?`<span class="pill">${esc(pill)}</span>`:(has(data.mastered,d.id)?`<span class="pill done">완료</span>`:""))}
   </button>`;
@@ -1241,11 +1264,13 @@ function renderCard(){
   $("#progTxt").textContent = (state.idx+1)+"/"+state.deck.length;
 
   if(data.mode === "blank"){
+    $("#card").classList.remove("full");
     $("#card").innerHTML = blankHTML(d);
     bindBlanks(d);
     renderBlankActions(d);
     return;
   }
+  $("#card").classList.toggle("full", !state.flipped);
   $("#card").innerHTML = state.flipped ? backHTML(d) : frontHTML(d);
   $("#actions").innerHTML = state.flipped
     ? `<button class="act again" data-a="again">다시 볼래요</button><button class="act ok" data-a="ok">외웠어요</button>`
