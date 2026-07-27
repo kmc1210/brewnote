@@ -316,6 +316,12 @@
   .search input{flex:1;border:none;outline:none;font-size:15px;background:transparent;}
   .search input::placeholder{color:var(--muted);}
   .grp{font-size:12px;font-weight:800;letter-spacing:1px;color:var(--muted);margin:20px 0 10px;}
+  .subb{flex:0 0 42px;height:42px;border-radius:13px;background:var(--accent-soft);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:-.2px;}
+  .uses{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;}
+  .uses button{font-size:12.5px;font-weight:700;padding:8px 12px;border-radius:999px;
+    background:var(--accent-soft);color:var(--accent-ink);}
+  .subvar-h{font-size:12px;font-weight:800;color:var(--muted);margin:18px 0 8px;letter-spacing:.4px;}
 
   .mask{position:absolute;inset:0;background:rgba(28,22,18,.42);opacity:0;pointer-events:none;transition:opacity .25s ease;z-index:70;}
   .mask.on{opacity:1;pointer-events:auto;}
@@ -545,7 +551,7 @@
     <!-- LIST -->
     <section class="screen" id="s-list">
       <div class="appbar" id="listBar">
-        <div><h1>레시피</h1><p>탭하면 상세 보기 · + 로 추가</p></div>
+        <div><h1>레시피</h1><p id="listSub">탭하면 상세 보기 · + 로 추가</p></div>
         <div class="tools">
           <button class="add" id="newBtn">+</button>
         </div>
@@ -558,6 +564,7 @@
       <div class="scroll">
         <div class="seg" id="listSeg" style="margin-bottom:14px">
           <button data-tab="recipe">레시피</button>
+          <button data-tab="sub">부재료</button>
           <button data-tab="shelf">내품기</button>
         </div>
         <div class="searchrow">
@@ -566,6 +573,7 @@
           <button class="linkbtn" id="selBtn">선택</button>
         </div>
         <div id="listBody"></div>
+        <div id="subBody"></div>
         <div id="shelfBody"></div>
       </div>
       <div class="selactions" id="selActions">
@@ -1187,6 +1195,26 @@ function tempBadge(d){
   if(t.includes("HOT") && t.includes("ICE")) return `<span class="tempb both"><i>ICE</i><i>HOT</i></span>`;
   return `<span class="tempb none">${catEmo(d.cat)}</span>`;
 }
+/* 앱바 부제: 안내문 대신 현재 상태를 보여준다 */
+function renderListSub(){
+  const el = $("#listSub"); if(!el) return;
+  if(state.listTab === "shelf"){
+    const today = tagGroups().reduce((n,g)=>n+g.items.length, 0);
+    el.textContent = "내품기 " + data.shelf.length + "개"
+      + (today ? " · 오늘 폐기 " + today + "개" : "");
+    return;
+  }
+  if(state.listTab === "sub"){
+    const idx = subIndex();
+    const used = new Set();
+    idx.forEach(e=>e.uses.forEach(u=>used.add(u.id)));
+    el.textContent = "부재료 " + idx.length + "개"
+      + (used.size ? " · 메뉴 " + used.size + "곳에 사용" : "");
+    return;
+  }
+  const done = data.drinks.filter(d=>has(data.mastered,d.id)).length;
+  el.textContent = "레시피 " + data.drinks.length + "개 · 외운 것 " + done + "개";
+}
 function rowHTML(d, pill, selectable){
   const on = selectable && state.sel.has(d.id);
   return `<button class="row${on?" on":""}" data-id="${esc(d.id)}">
@@ -1481,12 +1509,18 @@ function renderShelf(){
 
 function renderList(){
   document.querySelectorAll("#listSeg button").forEach(b=>b.classList.toggle("on", b.dataset.tab===state.listTab));
-  const shelfMode = state.listTab === "shelf";
-  $("#listBody").style.display = shelfMode ? "none" : "block";
+  const tab = state.listTab;
+  const shelfMode = tab === "shelf";
+  const subMode   = tab === "sub";
+  renderListSub();
+  $("#listBody").style.display  = (!shelfMode && !subMode) ? "block" : "none";
+  $("#subBody").style.display   = subMode   ? "block" : "none";
   $("#shelfBody").style.display = shelfMode ? "block" : "none";
-  $("#q").placeholder = shelfMode ? "항목 · 기한으로 검색" : "메뉴 이름 · 재료로 검색";
-  if(shelfMode){
-    renderShelf();
+  $("#q").placeholder = shelfMode ? "항목 · 기한으로 검색"
+    : (subMode ? "부재료 이름 · 쓰이는 메뉴로 검색" : "메뉴 이름 · 재료로 검색");
+  $("#newBtn").style.display = subMode ? "none" : "flex";   // 부재료는 보기 전용
+  if(shelfMode || subMode){
+    if(shelfMode) renderShelf(); else renderSubTab();
     $("#listBar").style.display = "flex";
     $("#selBar").style.display = "none";
     $("#selActions").classList.remove("on");
@@ -1580,6 +1614,77 @@ document.querySelectorAll("#listSeg button").forEach(b=>{
     renderList();
   });
 });
+
+/* ---------- 부재료 (레시피 안에 등록된 것을 모아서 보여주기만 한다) ---------- */
+/* 같은 이름은 한 줄로 합치고, 내용이 다르면 상세에서 각각 보여준다 */
+function subSig(s){
+  return JSON.stringify([(s.ing||[]), (s.steps||[]), s.tip||"", s.place||"", s.dur||""]);
+}
+function subIndex(){
+  const map = new Map();
+  data.drinks.forEach(d=>(d.subs||[]).forEach(s=>{
+    const name = (s.name||"").trim();
+    if(!name) return;
+    const key = name.toLowerCase();
+    if(!map.has(key)) map.set(key, {key:key, name:name, uses:[], variants:[]});
+    const e = map.get(key);
+    if(!e.uses.some(u=>u.id===d.id)) e.uses.push({id:d.id, name:d.name});
+    const sig = subSig(s);
+    const v = e.variants.find(x=>x.sig===sig);
+    if(v){ if(!v.from.some(f=>f.id===d.id)) v.from.push({id:d.id, name:d.name}); }
+    else e.variants.push({sig:sig, sub:s, from:[{id:d.id, name:d.name}]});
+  }));
+  return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+}
+function subMatch(e, q){
+  if(!q) return true;
+  const hay = [e.name, e.uses.map(u=>u.name).join(" "),
+    e.variants.map(v=>(v.sub.ing||[]).map(i=>i[0]+" "+i[1]).join(" ")).join(" ")].join(" ").toLowerCase();
+  return hay.indexOf(q) >= 0;
+}
+function renderSubTab(){
+  const q = ($("#q").value||"").trim().toLowerCase();
+  const all = subIndex();
+  const hit = all.filter(e=>subMatch(e,q));
+  const box = $("#subBody");
+  box.innerHTML = hit.length
+    ? hit.map(e=>`<button class="row" data-key="${esc(e.key)}">
+        <span class="subb">부재료</span>
+        <span class="meta"><b>${esc(e.name)}</b><span>${e.uses.map(u=>esc(u.name)).join(" · ")}</span></span>
+        ${e.variants.length > 1 ? `<span class="pill">배합 ${e.variants.length}가지</span>`
+          : (e.uses.length > 1 ? `<span class="pill done">${e.uses.length}곳</span>` : "")}
+      </button>`).join("")
+    : `<div class="empty" style="padding-bottom:18px">${q ? "검색 결과가 없어요."
+        : "등록된 부재료가 없어요.<br>레시피를 수정할 때 아래쪽 <b>부재료 레시피</b>에서 추가하면<br>여기에 모여서 보입니다."}</div>`;
+  box.querySelectorAll(".row").forEach(b=>
+    b.addEventListener("click", ()=>openSubSheet(b.dataset.key)));
+}
+function openSubSheet(key){
+  const e = subIndex().find(x=>x.key===key); if(!e) return;
+  const one = e.variants.length === 1;
+  const body = e.variants.map(v=>{
+    const s = v.sub;
+    const tag = [s.place, s.dur].filter(Boolean).join(" ");
+    return `${one ? "" : `<div class="subvar-h">${v.from.map(f=>esc(f.name)).join(" · ")} 기준</div>`}
+      ${tag ? `<div class="blk"><div class="lb">보관</div><div class="ing"><b>${esc(tag)}</b><span></span></div></div>` : ""}
+      ${(s.ing||[]).length ? `<div class="blk"><div class="lb">재료 / 용량</div>
+        ${(s.ing||[]).map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("")}</div>` : ""}
+      ${(s.steps||[]).length ? `<div class="blk"><div class="lb">만드는 순서</div>
+        <ol class="steps">${s.steps.map(t=>`<li>${esc(t)}</li>`).join("")}</ol></div>` : ""}
+      ${s.tip ? `<div class="blk"><div class="lb">기억 포인트</div><div class="tipbox">${esc(s.tip)}</div></div>` : ""}`;
+  }).join("");
+
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 2px;font-size:23px;font-weight:800;letter-spacing:-.5px">${esc(e.name)}</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">부재료 · 학습 카드에는 나오지 않아요</div>
+    ${body || `<div class="empty" style="margin-bottom:4px">내용이 아직 비어 있어요.</div>`}
+    <div class="blk" style="margin-bottom:0"><div class="lb">쓰이는 메뉴</div>
+      <div class="uses">${e.uses.map(u=>`<button data-go-id="${esc(u.id)}">${esc(u.name)}</button>`).join("")}</div>
+    </div>`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#sheetBody").querySelectorAll("[data-go-id]").forEach(b=>
+    b.addEventListener("click", ()=>{ const id=b.dataset.goId; closeSheet(); setTimeout(()=>openSheet(id), 220); }));
+}
 
 /* ---------- 내품기 ---------- */
 function openShelfSheet(idx){
