@@ -425,6 +425,11 @@
     background:var(--accent-soft);color:var(--accent-ink);}
   .shelfrow .nm{flex:1;min-width:0;font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .shelfrow .du{flex:0 0 auto;font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  /* 세그먼트를 좌우로 밀어 넘길 때 본문이 따라 움직인다 */
+  .pane{transition:transform .2s ease, opacity .2s ease;}
+  .pane.drag{transition:none;}
+  @media (prefers-reduced-motion:reduce){ .pane{transition:opacity .15s ease;} }
+
   /* 내품기: 기한별 묶음 */
   .durgrp{border:1px solid var(--line);background:var(--surface);border-radius:16px;margin-bottom:10px;overflow:hidden;}
   .durgrp-h{display:flex;align-items:center;gap:11px;padding:14px;width:100%;text-align:left;}
@@ -589,9 +594,11 @@
             <input id="q" type="search" placeholder="메뉴 이름 · 재료로 검색" autocomplete="off"></div>
           <button class="linkbtn" id="selBtn">선택</button>
         </div>
-        <div id="listBody"></div>
-        <div id="subBody"></div>
-        <div id="shelfBody"></div>
+        <div class="pane" id="listPane">
+          <div id="listBody"></div>
+          <div id="subBody"></div>
+          <div id="shelfBody"></div>
+        </div>
       </div>
       <div class="selactions" id="selActions">
         <button class="del-b" id="selDelete" disabled>삭제</button>
@@ -1219,6 +1226,13 @@ function tempBadge(d){
   return `<span class="tempb none">${catEmo(d.cat)}</span>`;
 }
 /* 앱바 부제: 안내문 대신 현재 상태를 보여준다 */
+/* 검색 결과가 없을 때: 무엇을 찾고 있었는지 보여주고 빠져나갈 길을 준다 */
+function noResultHTML(q, what){
+  return `<div class="empty" style="padding-bottom:18px">
+    “${esc(q)}”에 맞는 ${what} 없어요.
+    <button class="cta ghost" data-clearq="1" style="margin-top:16px">검색 지우기</button>
+  </div>`;
+}
 function renderListSub(){
   const el = $("#listSub"); if(!el) return;
   if(state.listTab === "shelf"){
@@ -1566,7 +1580,7 @@ function renderShelf(){
       </div>
     </div>`;
   });
-  box.innerHTML = html || `<div class="empty">검색 결과가 없어요.</div>`;
+  box.innerHTML = html || noResultHTML(q, "항목이");
 
   box.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click", ()=>{
     const d = Number(b.dataset.toggle);
@@ -1612,7 +1626,7 @@ function renderList(){
   const others = hit.filter(d=>!catOf(d.cat));
   if(others.length) html += `<div class="grp">기타</div>` + others.map(d=>rowHTML(d,null,sm)).join("");
   $("#listBody").innerHTML = html || (q
-    ? `<div class="empty">검색 결과가 없어요.</div>`
+    ? noResultHTML(q, "레시피가")
     : `<div class="empty" style="padding-bottom:18px">아직 레시피가 없어요.<br>오른쪽 위 + 로 추가하거나,<br>샘플로 먼저 둘러보셔도 돼요.
          <button class="cta ghost" id="emptySample" style="margin-top:16px">샘플 레시피 15개 불러오기</button>
        </div>`);
@@ -1680,10 +1694,110 @@ document.querySelectorAll("#listSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
     if(state.selMode) exitSel();
     state.listTab = b.dataset.tab;
-    $("#q").value = "";
-    renderList();
+    renderList();                 // 검색어는 그대로 둔다 (스와이프와 같게)
   });
 });
+
+/* =========================================================
+   레시피 화면 안에서 좌우로 밀어 세그먼트 이동
+   (탭과 달리 검색어는 그대로 둔다)
+   ========================================================= */
+const SEG_ORDER = ["recipe", "sub", "shelf"];
+const segS = { on:false, axis:"", x0:0, y0:0, id:null, w:0, busy:false };
+
+function segBlocked(t){
+  if($("#sheet").classList.contains("on")) return true;
+  if($("#mask").classList.contains("on")) return true;
+  const dlg = $("#dlg"), lock = $("#lock");
+  if(dlg && dlg.classList.contains("on")) return true;
+  if(lock && lock.classList.contains("on")) return true;
+  if(state.selMode) return true;                       // 선택 중엔 넘기지 않는다
+  if(!t || !t.closest) return true;
+  if(t.closest("input, textarea, select")) return true;
+  return false;
+}
+function segNeighbor(dir){
+  const i = SEG_ORDER.indexOf(state.listTab) + dir;
+  return (i >= 0 && i < SEG_ORDER.length) ? SEG_ORDER[i] : null;
+}
+function segSlideTo(tab, dir){
+  const pane = $("#listPane");
+  const still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const off = 42;
+  segS.busy = true;
+  pane.classList.remove("drag");
+  pane.style.transform = still ? "" : `translateX(${dir < 0 ? -off : off}px)`;
+  pane.style.opacity = "0";
+  setTimeout(()=>{
+    state.listTab = tab;
+    renderList();                                      // 검색어는 지우지 않는다
+    pane.style.transition = "none";
+    pane.style.transform = still ? "" : `translateX(${dir < 0 ? off : -off}px)`;
+    requestAnimationFrame(()=>{
+      pane.style.transition = "";
+      pane.style.transform = "translateX(0px)";
+      pane.style.opacity = "1";
+      setTimeout(()=>{ pane.style.transform = ""; pane.style.opacity = ""; segS.busy = false; }, 220);
+    });
+  }, still ? 120 : 190);
+}
+function segStart(e){
+  if(segS.busy || e.touches.length !== 1) return;
+  if(!$("#s-list").classList.contains("active")) return;
+  if(segBlocked(e.target)) return;
+  const t = e.touches[0];
+  const r = $("#s-list").getBoundingClientRect();
+  if(t.clientX - r.left < 24 || r.right - t.clientX < 24) return;   // 가장자리는 iOS 몫
+  segS.on = true; segS.axis = ""; segS.x0 = t.clientX; segS.y0 = t.clientY;
+  segS.w = r.width; segS.id = t.identifier;
+}
+function segMove(e){
+  if(!segS.on) return;
+  const t = [...e.touches].find(x=>x.identifier===segS.id);
+  if(!t) return;
+  const dx = t.clientX - segS.x0, dy = t.clientY - segS.y0;
+  if(!segS.axis){
+    if(Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    if(Math.abs(dx) < Math.abs(dy) * 1.4){ segS.on = false; return; }  // 세로 스크롤에 양보
+    segS.axis = "x";
+    $("#listPane").classList.add("drag");
+  }
+  e.preventDefault();
+  const has = !!segNeighbor(dx < 0 ? 1 : -1);
+  const pull = has ? 0.38 : 0.12;                       // 끝 칸에서는 거의 안 밀린다
+  $("#listPane").style.transform = `translateX(${dx * pull}px)`;
+}
+function segEnd(){
+  if(!segS.on) return;
+  const axis = segS.axis;
+  segS.on = false; segS.axis = "";
+  const pane = $("#listPane");
+  if(axis !== "x") return;
+  const dx = (parseFloat((pane.style.transform.match(/-?[\d.]+/) || [0])[0]) || 0);
+  pane.classList.remove("drag");
+  const dir = dx < 0 ? 1 : -1;
+  const next = segNeighbor(dir);
+  if(next && Math.abs(dx) > segS.w * 0.06){            // 충분히 밀었으면 넘어간다
+    segSlideTo(next, dir);
+  } else {
+    pane.style.transform = "translateX(0px)";
+    setTimeout(()=>{ if(!segS.busy) pane.style.transform = ""; }, 220);
+  }
+}
+$("#s-list").addEventListener("click", e=>{
+  const b = e.target.closest("[data-clearq]");
+  if(!b) return;
+  $("#q").value = "";
+  renderList();
+});
+
+(function bindSegSwipe(){
+  const el = $("#s-list"); if(!el) return;
+  el.addEventListener("touchstart", segStart, {passive:true});
+  el.addEventListener("touchmove",  segMove,  {passive:false});
+  el.addEventListener("touchend",   segEnd,   {passive:true});
+  el.addEventListener("touchcancel",segEnd,   {passive:true});
+})();
 
 /* ---------- 부재료 (레시피 안에 등록된 것을 모아서 보여주기만 한다) ---------- */
 /* 같은 이름은 한 줄로 합치고, 내용이 다르면 상세에서 각각 보여준다 */
@@ -1724,8 +1838,8 @@ function renderSubTab(){
         ${e.variants.length > 1 ? `<span class="pill">배합 ${e.variants.length}가지</span>`
           : (e.uses.length > 1 ? `<span class="pill done">${e.uses.length}곳</span>` : "")}
       </button>`).join("")
-    : `<div class="empty" style="padding-bottom:18px">${q ? "검색 결과가 없어요."
-        : "등록된 부재료가 없어요.<br>레시피를 수정할 때 아래쪽 <b>부재료 레시피</b>에서 추가하면<br>여기에 모여서 보입니다."}</div>`;
+    : (q ? noResultHTML(q, "부재료가")
+         : `<div class="empty" style="padding-bottom:18px">등록된 부재료가 없어요.<br>레시피를 수정할 때 아래쪽 <b>부재료 레시피</b>에서 추가하면<br>여기에 모여서 보입니다.</div>`);
   box.querySelectorAll(".row").forEach(b=>
     b.addEventListener("click", ()=>openSubSheet(b.dataset.key)));
 }
