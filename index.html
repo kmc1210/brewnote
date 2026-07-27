@@ -1054,8 +1054,8 @@ const CHEERS = [
   "완벽하지 않아도 돼, 익숙해지면 되는 거츄"
 ];
 function cheerOf(now, streak){
-  if(streak >= 7) return {ico:"🔥", msg:streak + "일 연속이에요. 이 정도면 습관이 됐네요!"};
-  if(streak >= 3) return {ico:"🔥", msg:streak + "일 연속 접속 중이에요. 잘하고 있어요!"};
+  if(streak >= 7) return {ico:"🔥", msg:streak + "일 연속이라니! 이 정도면 습관이 된 거츄"};
+  if(streak >= 3) return {ico:"🔥", msg:streak + "일 연속이야, 잘하고 있츄!"};
   const seed = Math.floor((now - new Date(now.getFullYear(),0,0)) / 86400000);
   return {ico:"☕️", msg:CHEERS[seed % CHEERS.length]};
 }
@@ -1186,7 +1186,7 @@ function sayBubble(msg){
   void el.offsetWidth;          // 애니메이션 재시작
   el.classList.add("pop");
 }
-const SLEEPY = ["쿨… 자는 중이에요", "내일 봐요…", "Zzz…", "조금만 더 잘게요"];
+const SLEEPY = ["쿨… 자는 중이츄", "내일 보자츄…", "Zzz… 츄…", "조금만 더 잘게츄", "지금은 꿈에서 레시피 외우는 중이츄"];
 $("#mascot").addEventListener("click", ()=>{
   const pool = currentMood() === "night" ? SLEEPY : CHEERS;
   sayBubble(pool[Math.floor(Math.random() * pool.length)]);
