@@ -373,6 +373,11 @@
   .dyn-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;}
   .dyn-row input{flex:1;min-width:0;padding:12px 13px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:14.5px;outline:none;}
   .dyn-row input.amt{flex:0 0 108px;font-weight:700;}
+  .ord{flex:0 0 26px;display:flex;flex-direction:column;gap:3px;}
+  .ord button{height:20px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);
+    color:var(--ink-2);font-size:9px;line-height:1;display:flex;align-items:center;justify-content:center;}
+  .ord button:disabled{opacity:.3;}
+  .ord button:active:not(:disabled){background:var(--accent-soft);}
   .del{flex:0 0 34px;height:34px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);font-size:17px;line-height:1;}
   .addrow{width:100%;padding:12px;border-radius:12px;border:1px dashed var(--line);color:var(--accent);font-size:13.5px;font-weight:700;background:var(--surface-2);}
   .stepnum{flex:0 0 22px;text-align:center;font-size:13px;font-weight:800;color:var(--muted);}
@@ -2215,18 +2220,51 @@ function ingRow(name,amt){
   const w = document.createElement("div"); w.className = "dyn-row";
   w.innerHTML = `<input type="text" class="nm" placeholder="재료" autocomplete="off">
     <input type="text" class="amt" placeholder="용량" autocomplete="off">
+    ${ORD_HTML}
     <button class="del" type="button">−</button>`;
   w.querySelector(".nm").value = name||""; w.querySelector(".amt").value = amt||"";
-  w.querySelector(".del").addEventListener("click", ()=>w.remove());
+  bindOrd(w);
+  w.querySelector(".del").addEventListener("click", ()=>{ const b=w.parentNode; w.remove(); if(b) refreshOrd(b); });
   return w;
 }
 function stepRow(text){
   const w = document.createElement("div"); w.className = "dyn-row";
   w.innerHTML = `<span class="stepnum"></span><input type="text" class="st" placeholder="예: 얼음 130g을 채운다" autocomplete="off">
+    ${ORD_HTML}
     <button class="del" type="button">−</button>`;
   w.querySelector(".st").value = text||"";
-  w.querySelector(".del").addEventListener("click", ()=>{ w.remove(); renumber(); });
+  bindOrd(w, renumber);
+  w.querySelector(".del").addEventListener("click", ()=>{ const b=w.parentNode; w.remove(); renumber(); if(b) refreshOrd(b); });
   return w;
+}
+/* 줄을 위아래로 옮긴다 (지우고 다시 쓰지 않아도 되게) */
+const ORD_HTML = `<span class="ord">
+    <button type="button" class="up" aria-label="위로">▲</button>
+    <button type="button" class="dn" aria-label="아래로">▼</button>
+  </span>`;
+function refreshOrd(box, after){
+  const rows = Array.from(box.querySelectorAll(":scope > .dyn-row"));
+  rows.forEach((r,i)=>{
+    const u = r.querySelector(".up"), d = r.querySelector(".dn");
+    if(u) u.disabled = (i === 0);
+    if(d) d.disabled = (i === rows.length - 1);
+  });
+  if(after) after();
+}
+function bindOrd(w, after){
+  const move = dir => {
+    const box = w.parentNode; if(!box) return;
+    if(dir < 0){
+      const prev = w.previousElementSibling;
+      if(prev && prev.classList.contains("dyn-row")) box.insertBefore(w, prev);
+    } else {
+      const next = w.nextElementSibling;
+      if(next && next.classList.contains("dyn-row")) box.insertBefore(next, w);
+    }
+    refreshOrd(box, after);
+  };
+  w.querySelector(".up").addEventListener("click", ()=>move(-1));
+  w.querySelector(".dn").addEventListener("click", ()=>move(1));
 }
 function renumber(){
   document.querySelectorAll("#e-steps .stepnum").forEach((el,i)=>el.textContent = (i+1)+".");
@@ -2304,7 +2342,7 @@ function openEditor(id, draft){
   const sb = $("#e-steps"); sb.innerHTML = "";
   const sts = d && d.steps.length ? d.steps : ["",""];
   sts.forEach(s=>sb.appendChild(stepRow(s)));
-  renumber();
+  renumber(); refreshOrd(ib); refreshOrd(sb);
   state.subs = (d && Array.isArray(d.subs)) ? d.subs.map(s=>({
     id:s.id||uid(), name:s.name||"", ing:(s.ing||[]).map(p=>[p[0],p[1]]),
     steps:(s.steps||[]).slice(), tip:s.tip||"", place:s.place||"", dur:s.dur||""
@@ -2333,7 +2371,7 @@ function writeEditorForm(f){
   (f.ing.length?f.ing:[["",""]]).forEach(p=>ib.appendChild(ingRow(p[0],p[1])));
   const sb=$("#e-steps"); sb.innerHTML="";
   (f.steps.length?f.steps:[""]).forEach(s=>sb.appendChild(stepRow(s)));
-  renumber();
+  renumber(); refreshOrd($("#e-ing")); refreshOrd(sb);
 }
 function renderSubs(){
   const box = $("#e-subs");
@@ -2367,7 +2405,7 @@ function openSubEditor(idx){
   const sb=$("#s-steps"); sb.innerHTML="";
   const sts = (s && s.steps.length) ? s.steps : [""];
   sts.forEach(t=>sb.appendChild(subStepRow(t)));
-  renumberSub();
+  renumberSub(); refreshOrd(ib); refreshOrd(sb);
   $("#subDel").style.display = s ? "block" : "none";
   go("sub");
   $("#s-sub .scroll").scrollTop = 0;
@@ -2384,9 +2422,11 @@ function drawSubPlaces(){
 function subStepRow(text){
   const w=document.createElement("div"); w.className="dyn-row";
   w.innerHTML=`<span class="stepnum"></span><input type="text" class="st" placeholder="예: 설탕과 1:1로 재운다" autocomplete="off">
+    ${ORD_HTML}
     <button class="del" type="button">−</button>`;
   w.querySelector(".st").value = text||"";
-  w.querySelector(".del").addEventListener("click", ()=>{ w.remove(); renumberSub(); });
+  bindOrd(w, renumberSub);
+  w.querySelector(".del").addEventListener("click", ()=>{ const b=w.parentNode; w.remove(); renumberSub(); if(b) refreshOrd(b); });
   return w;
 }
 function renumberSub(){
@@ -2398,8 +2438,8 @@ function backToEditor(){
   renderSubs();
 }
 $("#addSub").addEventListener("click", ()=>openSubEditor(null));
-$("#addSubIng").addEventListener("click", ()=>$("#s-ing").appendChild(ingRow()));
-$("#addSubStep").addEventListener("click", ()=>{ $("#s-steps").appendChild(subStepRow()); renumberSub(); });
+$("#addSubIng").addEventListener("click", ()=>{ const b=$("#s-ing"); b.appendChild(ingRow()); refreshOrd(b); });
+$("#addSubStep").addEventListener("click", ()=>{ const b=$("#s-steps"); b.appendChild(subStepRow()); renumberSub(); refreshOrd(b); });
 $("#subClose").addEventListener("click", backToEditor);
 $("#subSave").addEventListener("click", ()=>{
   const name = $("#s-name").value.trim();
@@ -2428,8 +2468,8 @@ $("#subDel").addEventListener("click", ()=>{
     backToEditor();
   });
 });
-$("#addIng").addEventListener("click", ()=>$("#e-ing").appendChild(ingRow()));
-$("#addStep").addEventListener("click", ()=>{ $("#e-steps").appendChild(stepRow()); renumber(); });
+$("#addIng").addEventListener("click", ()=>{ const b=$("#e-ing"); b.appendChild(ingRow()); refreshOrd(b); });
+$("#addStep").addEventListener("click", ()=>{ const b=$("#e-steps"); b.appendChild(stepRow()); renumber(); refreshOrd(b); });
 $("#editClose").addEventListener("click", ()=>go("list"));
 
 $("#saveBtn").addEventListener("click", ()=>{
