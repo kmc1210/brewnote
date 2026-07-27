@@ -316,6 +316,7 @@
   .search input{flex:1;border:none;outline:none;font-size:15px;background:transparent;}
   .search input::placeholder{color:var(--muted);}
   .grp{font-size:12px;font-weight:800;letter-spacing:1px;color:var(--muted);margin:20px 0 10px;}
+  .grp .ge{margin-right:5px;font-size:13px;letter-spacing:0;}
   .subb{flex:0 0 42px;height:42px;border-radius:13px;background:var(--accent-soft);color:var(--accent);
     display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:-.2px;}
   .uses{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;}
@@ -1148,7 +1149,7 @@ document.querySelectorAll(".tab").forEach(t=>{
 /* ---------- 홈 ---------- */
 function renderHome(){
   renderGreeting();
-  const items = [["all","전체"]].concat(data.cats.map(c=>[c.id, c.label]));
+  const items = [["all","전체"]].concat(data.cats.map(c=>[c.id, c.emo + " " + c.label]));
   $("#chips").innerHTML = items.map(([k,l])=>{
     const n = drinksOf(k).length;
     return `<button class="chip ${state.filter===k?"on":""}" data-cat="${k}">${esc(l)} ${n}</button>`;
@@ -1361,7 +1362,7 @@ function renderBlankActions(d){
 }
 function frontHTML(d){
   return `<div class="face"><div class="front">
-    <div class="cat">${esc(catLabel(d.cat) || "기타")}</div>
+    <div class="cat">${esc(catEmo(d.cat))} ${esc(catLabel(d.cat) || "기타")}</div>
     <h2>${esc(d.name)}</h2>
     ${d.en?`<div class="en">${esc(enText(d.en))}</div>`:""}
     <div class="tags">${d.temp?`<span class="tag">${esc(d.temp)}</span>`:""}${cupList(d).map(c=>`<span class="tag">${esc(c)}</span>`).join("")}</div>
@@ -1534,7 +1535,7 @@ function renderList(){
   data.cats.forEach(c=>{
     const items = hit.filter(d=>d.cat===c.id);
     if(!items.length && q) return;                 // 검색 중일 땐 빈 분류를 숨긴다
-    html += `<div class="grp">${esc(c.label)}</div>`;
+    html += `<div class="grp"><span class="ge">${esc(c.emo)}</span>${esc(c.label)}</div>`;
     html += items.length
       ? items.map(d=>rowHTML(d,null,sm)).join("")
       : `<div class="empty" style="padding:16px;margin-bottom:9px;font-size:13px">아직 이 분류에 레시피가 없어요.</div>`;
@@ -2419,16 +2420,16 @@ function delCat(idx){
   if(data.cats.length <= 1){ toast("카테고리는 하나 이상 있어야 해요"); return; }
   const c = data.cats[idx];
   const used = data.drinks.filter(d=>d.cat===c.id);
-  const other = data.cats.find((x,i)=>i!==idx);
   const msg = used.length
-    ? `“${c.label}” 안의 레시피 ${used.length}개는 “${other.label}”로 옮겨집니다.`
+    ? `“${c.label}” 안의 레시피 ${used.length}개도 함께 삭제됩니다. 되돌릴 수 없어요.`
     : `“${c.label}”를 삭제할까요?`;
-  confirmBox("카테고리 삭제", msg, "삭제", ()=>{
-    used.forEach(d=>{ d.cat = other.id; });
+  confirmBox("카테고리 삭제", msg, used.length ? "함께 삭제" : "삭제", ()=>{
+    used.forEach(d=>{ rm(data.mastered, d.id); rm(data.needReview, d.id); });
+    data.drinks = data.drinks.filter(d=>d.cat !== c.id);
     data.cats.splice(idx,1);
     if(state.filter === c.id) state.filter = "all";
     persist(); renderCats(); renderHome(); renderList();
-    toast("삭제했어요");
+    toast(used.length ? `카테고리와 레시피 ${used.length}개를 삭제했어요` : "삭제했어요");
   });
 }
 $("#catAdd").addEventListener("click", ()=>openCatSheet(null));
