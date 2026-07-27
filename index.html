@@ -425,6 +425,20 @@
     background:var(--accent-soft);color:var(--accent-ink);}
   .shelfrow .nm{flex:1;min-width:0;font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .shelfrow .du{flex:0 0 auto;font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  /* 내품기: 기한별 묶음 */
+  .durgrp{border:1px solid var(--line);background:var(--surface);border-radius:16px;margin-bottom:10px;overflow:hidden;}
+  .durgrp-h{display:flex;align-items:center;gap:11px;padding:14px;width:100%;text-align:left;}
+  .durgrp-h .dd{flex:0 0 auto;min-width:44px;text-align:center;font-size:14px;font-weight:800;
+    padding:7px 9px;border-radius:11px;background:var(--accent-soft);color:var(--accent-ink);}
+  .durgrp-h .nm{flex:1;min-width:0;}
+  .durgrp-h .nm b{display:block;font-size:14.5px;font-weight:700;}
+  .durgrp-h .nm span{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .durgrp-h .ar{flex:0 0 auto;color:var(--muted);font-size:12px;transition:transform .18s ease;}
+  .durgrp.on .durgrp-h .ar{transform:rotate(180deg);}
+  .durgrp-b{display:none;padding:0 14px 14px;}
+  .durgrp.on .durgrp-b{display:block;}
+  .durgrp-b .shelfrow{background:var(--bg);}
   .subsect{margin-top:30px;padding-top:22px;border-top:1px dashed var(--line);}
   .subsect .lb{margin-bottom:3px;}
   .subsect .cap{font-size:11.5px;color:var(--muted);line-height:1.5;margin:0 0 14px;}
@@ -924,7 +938,7 @@ data.drinks.forEach(d=>{
 const state = {filter:"all", deck:[], idx:0, flipped:false, stat:{ok:0,again:0,total:0},
                editingId:null, selMode:false, sel:new Set(), revealed:new Set(), discOpen:false,
                subs:[], subIdx:null, parentForm:null, cupSel:[], cupCustom:false,
-               listTab:"recipe", subPlace:""};
+               listTab:"recipe", subPlace:"", shelfOpen:new Set()};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
@@ -1489,46 +1503,78 @@ function renderToday(){
     </button>`;
   }).join("");
   $("#todayList").querySelectorAll(".row").forEach(b=>b.addEventListener("click", ()=>{
-    state.listTab = "shelf"; go("list");
+    state.listTab = "shelf";
+    state.shelfOpen.add(Number(b.dataset.days));   // 누른 기한을 펼쳐서 보여준다
+    go("list");
   }));
 }
 
+/* 기한(일수)별로 묶는다. 목록은 고정이 아니라 등록한 만큼 생긴다. */
+function shelfGroups(){
+  const map = {};
+  data.shelf.forEach(s=>{
+    const n = durDays(s.dur);
+    const key = (n && n >= 1 && n <= 60) ? n : 0;   // 0 = 기한을 못 읽은 것
+    (map[key] = map[key] || []).push(s);
+  });
+  return Object.keys(map).map(Number).sort((a,b)=>a-b).map(n=>({days:n, items:map[n]}));
+}
+function shelfRowHTML(s){
+  return `<button class="shelfrow" data-id="${esc(s.id)}">
+    ${s.place?`<span class="pl">${esc(s.place)}</span>`:""}
+    <span class="nm">${esc(s.name)}</span>
+    <span class="du">${esc(s.dur||"—")}</span>
+  </button>`;
+}
+function tagTableHTML(days, now){
+  return `<div class="tagset" style="margin-top:16px">
+    <div class="tagset-h"><h4>${days}일택</h4><span>${days}가지 조합</span></div>
+    ${tagRows(days, now).map(r=>`
+      <div class="tagrow${r.today?" today":""}">
+        <span class="tagno" style="background:${TAG_COLORS[(r.no-1) % TAG_COLORS.length]}">${r.no}</span>
+        <span class="tagdates"><span class="o">${fmtDate(r.open)} 개봉</span><span class="x">${fmtDate(r.kill)} 폐기</span></span>
+        ${r.today?`<span class="tagbadge">오늘 폐기</span>`:""}
+      </div>`).join("")}
+  </div>`;
+}
 function renderShelf(){
   const q = ($("#q").value||"").trim().toLowerCase();
-  const hit = data.shelf.filter(s=>{
-    if(!q) return true;
-    return (s.name+" "+(s.place||"")+" "+(s.dur||"")).toLowerCase().indexOf(q)>=0;
-  });
   const box = $("#shelfBody");
-  box.innerHTML = hit.length
-    ? hit.map((s)=>`<button class="shelfrow" data-id="${esc(s.id)}">
-        ${s.place?`<span class="pl">${esc(s.place)}</span>`:""}
-        <span class="nm">${esc(s.name)}</span>
-        <span class="du">${esc(s.dur||"—")}</span>
-      </button>`).join("")
-    : `<div class="empty" style="padding-bottom:18px">${q?"검색 결과가 없어요.":"등록된 내품기가 없어요.<br>오른쪽 위 + 로 추가해 보세요."}</div>`;
-  box.querySelectorAll(".shelfrow").forEach(b=>{
-    b.addEventListener("click", ()=>openShelfSheet(data.shelf.findIndex(x=>x.id===b.dataset.id)));
-  });
-
-  // 기한별 개봉일→폐기일 조합표
-  if(q) return;
   const now = new Date();
-  tagGroups().forEach(g=>{
-    const rows = tagRows(g.days, now);
-    const wrap = document.createElement("div");
-    wrap.className = "tagset";
-    wrap.innerHTML = `
-      <div class="tagset-h"><h4>${g.days}일택</h4><span>${g.days}가지 조합</span></div>
-      <div style="font-size:12.5px;color:var(--muted);margin:-6px 0 12px;line-height:1.5">${g.items.map(s=>esc(s.name)).join(" · ")}</div>
-      ${rows.map(r=>`
-        <div class="tagrow${r.today?" today":""}">
-          <span class="tagno" style="background:${TAG_COLORS[(r.no-1) % TAG_COLORS.length]}">${r.no}</span>
-          <span class="tagdates"><span class="o">${fmtDate(r.open)} 개봉</span><span class="x">${fmtDate(r.kill)} 폐기</span></span>
-          ${r.today?`<span class="tagbadge">오늘 폐기</span>`:""}
-        </div>`).join("")}`;
-    box.appendChild(wrap);
+  const groups = shelfGroups();
+
+  if(!data.shelf.length){
+    box.innerHTML = `<div class="empty" style="padding-bottom:18px">등록된 내품기가 없어요.<br>오른쪽 위 + 로 추가하면<br>기한별로 여기에 묶여서 보입니다.</div>`;
+    return;
+  }
+  let html = "";
+  groups.forEach(g=>{
+    const items = g.items.filter(s=>!q ||
+      (s.name+" "+(s.place||"")+" "+(s.dur||"")).toLowerCase().indexOf(q) >= 0);
+    if(!items.length) return;
+    const open = q ? true : state.shelfOpen.has(g.days);      // 검색 중엔 다 펼친다
+    const label = g.days ? g.days + "일" : "미정";
+    html += `<div class="durgrp${open?" on":""}" data-days="${g.days}">
+      <button class="durgrp-h" data-toggle="${g.days}">
+        <span class="dd">${esc(label)}</span>
+        <span class="nm"><b>${items.length}개</b><span>${items.map(s=>esc(s.name)).join(" · ")}</span></span>
+        <span class="ar">▾</span>
+      </button>
+      <div class="durgrp-b">
+        ${items.map(shelfRowHTML).join("")}
+        ${g.days ? tagTableHTML(g.days, now) : ""}
+      </div>
+    </div>`;
   });
+  box.innerHTML = html || `<div class="empty">검색 결과가 없어요.</div>`;
+
+  box.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click", ()=>{
+    const d = Number(b.dataset.toggle);
+    if(state.shelfOpen.has(d)) state.shelfOpen.delete(d); else state.shelfOpen.add(d);
+    renderShelf();
+  }));
+  box.querySelectorAll(".shelfrow").forEach(b=>b.addEventListener("click", ()=>
+    openShelfSheet(data.shelf.findIndex(x=>x.id===b.dataset.id))));
 }
 
 function renderList(){
