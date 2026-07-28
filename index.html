@@ -317,6 +317,10 @@
   .search{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:6px;}
   .search input{flex:1;border:none;outline:none;font-size:15px;background:transparent;}
   .search input::placeholder{color:var(--muted);}
+  .bkbtns{display:flex;gap:8px;margin-top:11px;}
+  .bkbtns button{flex:1;padding:11px;border-radius:11px;font-size:13.5px;font-weight:700;}
+  .bkbtns .go{background:var(--accent);color:var(--on-accent);}
+  .bkbtns .later{background:var(--surface);border:1px solid var(--line);color:var(--muted);}
   .grp{font-size:12px;font-weight:800;letter-spacing:1px;color:var(--muted);margin:20px 0 10px;}
   .grp .ge{margin-right:5px;font-size:13px;letter-spacing:0;}
   .subb{flex:0 0 42px;height:42px;border-radius:13px;background:var(--accent-soft);color:var(--accent);
@@ -528,6 +532,7 @@
           <div class="txt"><h2 id="heroTitle"></h2><p id="heroSub"></p></div>
         </div>
         <div id="storeBanner"></div>
+        <div id="backupBanner"></div>
 
         <div class="sect" id="todaySect" style="display:none">
           <div class="sect-h"><h3>오늘 폐기</h3><span id="todayDate"></span></div>
@@ -1251,6 +1256,7 @@ function renderHome(){
       : "");
 
   renderToday();
+  renderBackupBanner();
 
   const rev = data.drinks.filter(d=>has(data.needReview,d.id));
   $("#reviewCount").textContent = rev.length ? rev.length+"개" : "";
@@ -1544,6 +1550,49 @@ function tagRows(n, today){
   }
   return rows;
 }
+/* 백업을 권할 때인지 — 앱이 먼저 말을 걸어야 데이터를 안 잃는다 */
+function backupDue(){
+  const n = data.drinks.length;
+  if(n < 8) return null;                                  // 몇 개 없을 땐 성가시기만 하다
+  const today = ymd(new Date());
+  const snz = data.backupSnooze;
+  if(snz && dayGap(snz, today) < 7) return null;           // "나중에" 를 누른 뒤 일주일은 조용히
+  const b = data.backup;
+  if(!b) return {kind:"never", n:n};
+  const grew = n - (b.count || 0);
+  const days = dayGap(b.at, today);
+  if(grew >= 5) return {kind:"grew", n:n, grew:grew};
+  if(days >= 14) return {kind:"old", n:n, days:days};
+  return null;
+}
+function markBackedUp(){
+  data.backup = {at: ymd(new Date()), count: data.drinks.length};
+  delete data.backupSnooze;
+  persist();
+  renderBackupBanner();
+}
+function renderBackupBanner(){
+  const box = $("#backupBanner"); if(!box) return;
+  const due = backupDue();
+  if(!due){ box.innerHTML = ""; return; }
+  const msg = due.kind === "never"
+    ? `레시피가 ${due.n}개 쌓였어요. 아직 백업 파일이 없습니다.`
+    : (due.kind === "grew"
+      ? `마지막 백업 뒤로 레시피가 ${due.grew}개 늘었어요.`
+      : `마지막 백업이 ${due.days}일 전이에요.`);
+  box.innerHTML = `<div class="banner warn"><span>💾</span><div>
+      <b>백업 파일을 만들어 두세요.</b><br>${esc(msg)} 사파리 데이터를 지우거나 기기를 바꾸면 사라집니다.
+      <div class="bkbtns">
+        <button class="go" id="bkNow">지금 백업</button>
+        <button class="later" id="bkLater">나중에</button>
+      </div></div></div>`;
+  $("#bkNow").addEventListener("click", ()=>{ saveBackupFile(); });
+  $("#bkLater").addEventListener("click", ()=>{
+    data.backupSnooze = ymd(new Date()); persist(); renderBackupBanner();
+    toast("일주일 뒤에 다시 알려드릴게요");
+  });
+}
+
 function renderToday(){
   const groups = tagGroups();
   const now = new Date();
@@ -1658,6 +1707,20 @@ function renderList(){
   const hit = visibleDrinks();
   const sm = state.selMode;
   let html = "";
+  if(!data.drinks.length && !q){                   // 처음 왔을 때는 분류 대신 길을 알려준다
+    $("#listBody").innerHTML = `<div class="empty" style="padding:30px 18px 22px">
+        <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">아직 레시피가 없어요</b>
+        오른쪽 위 <b>+</b> 로 직접 넣거나<br>사진 속 글자를 붙여넣어 등록할 수 있어요.<br>
+        어떤 앱인지 먼저 둘러보시려면 아래를 눌러보세요.
+        <button class="cta ghost" id="emptySample" style="margin-top:18px">샘플 레시피 15개 넣어보기</button>
+      </div>`;
+    $("#emptySample").addEventListener("click", loadSamples);
+    $("#listBar").style.display = "flex";
+    $("#selBar").style.display = "none";
+    $("#selActions").classList.remove("on");
+    $("#selBtn").style.display = "none";
+    return;
+  }
   data.cats.forEach(c=>{
     const items = hit.filter(d=>d.cat===c.id);
     if(!items.length && q) return;                 // 검색 중일 땐 빈 분류를 숨긴다
@@ -1668,14 +1731,8 @@ function renderList(){
   });
   const others = hit.filter(d=>!catOf(d.cat));
   if(others.length) html += `<div class="grp">기타</div>` + others.map(d=>rowHTML(d,null,sm)).join("");
-  $("#listBody").innerHTML = html || (q
-    ? noResultHTML(q, "레시피가")
-    : `<div class="empty" style="padding-bottom:18px">아직 레시피가 없어요.<br>오른쪽 위 + 로 추가하거나,<br>샘플로 먼저 둘러보셔도 돼요.
-         <button class="cta ghost" id="emptySample" style="margin-top:16px">샘플 레시피 15개 불러오기</button>
-       </div>`);
+  $("#listBody").innerHTML = html || noResultHTML(q, "레시피가");
   bindRows("#listBody", sm);
-  const es = $("#emptySample");
-  if(es) es.addEventListener("click", loadSamples);
 
   $("#listBar").style.display = sm ? "none" : "flex";
   $("#selBar").style.display = sm ? "flex" : "none";
@@ -2745,7 +2802,7 @@ function stamp(){
   const n = new Date(), p = x=>String(x).padStart(2,"0");
   return n.getFullYear()+p(n.getMonth()+1)+p(n.getDate())+"-"+p(n.getHours())+p(n.getMinutes());
 }
-$("#expFile").addEventListener("click", ()=>{
+function saveBackupFile(){
   try{
     const blob = new Blob([backupJSON()], {type:"application/json"});
     const url = URL.createObjectURL(blob);
@@ -2753,15 +2810,18 @@ $("#expFile").addEventListener("click", ()=>{
     a.href = url; a.download = "brewnote-backup-"+stamp()+".json";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1500);
+    markBackedUp();
     toast("백업 파일을 저장했어요");
   }catch(e){ toast("저장이 안 돼요. 텍스트로 복사해 주세요"); }
-});
+}
+$("#expFile").addEventListener("click", saveBackupFile);
 $("#expText").addEventListener("click", ()=>{
   const box = $("#expBox");
   box.value = backupJSON(); box.style.display = "block";
   box.select();
   if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(box.value).then(()=>toast("복사했어요"), ()=>toast("길게 눌러 복사해 주세요"));
+    navigator.clipboard.writeText(box.value).then(()=>{ markBackedUp(); toast("복사했어요"); },
+                                                 ()=>toast("길게 눌러 복사해 주세요"));
   } else toast("길게 눌러 복사해 주세요");
 });
 $("#impFile").addEventListener("click", ()=>$("#fileInput").click());
