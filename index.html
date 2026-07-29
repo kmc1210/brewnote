@@ -1024,12 +1024,46 @@ function mouseSVG(mood, puff){
    밤이라도 자는 모습 대신 깨어 있는 얼굴을 쓴다(안내하는 자리라서). */
 /* k 는 도트 한 칸을 몇 px 로 그릴지. 정수만 받는다 —
    28x40 격자를 소수 배율로 늘리면 칸 경계가 반 px 에 걸려 그림이 지저분해진다. */
-function emptyMouse(k){
+function emptyMouseMood(){
   const m = moodOf(new Date().getHours());
+  return m === "night" ? "day" : m;
+}
+function emptyMouse(k){
   const s = k || 2;
   return `<div class="mz" style="width:${28*s}px;height:${40*s}px">`
-       + mouseSVG(m === "night" ? "day" : m, false) + `</div>`;
+       + mouseSVG(emptyMouseMood(), false) + `</div>`;
 }
+
+/* 빈 화면 쥐돌이도 눈을 깜빡인다. 눈만 바뀌므로 몸은 그대로다.
+   다만 화면이 움직이는 중이거나 검색창에 타이핑 중일 때는 쉰다 —
+   그때 다시 그리면 도트가 튀어 보이고, 글 쓰는 옆에서 깜빡이면 거슬린다. */
+let emptyBlinkTimer = null;
+function emptyMice(){
+  return [...document.querySelectorAll("#listPane .mz")]
+    .filter(el => el.getBoundingClientRect().width > 0);   // 숨은 탭은 건너뛴다
+}
+function emptyBlinkOk(){
+  if(reduceMotion() || document.hidden) return false;
+  if(!$("#s-list").classList.contains("active")) return false;
+  if(segS.busy || segS.on) return false;              // 미는 중에는 손대지 않는다
+  if(document.activeElement === $("#q")) return false; // 검색창에 커서가 있을 때도
+  return true;
+}
+function scheduleEmptyBlink(){
+  clearTimeout(emptyBlinkTimer);
+  emptyBlinkTimer = setTimeout(()=>{
+    if(emptyBlinkOk()){
+      const els = emptyMice();
+      if(els.length){
+        const shut = mouseSVG("blink", false), open = mouseSVG(emptyMouseMood(), false);
+        els.forEach(el => el.innerHTML = shut);
+        setTimeout(()=>{ emptyMice().forEach(el => el.innerHTML = open); }, 140);
+      }
+    }
+    scheduleEmptyBlink();
+  }, 3600 + Math.random()*4600);                       // 홈보다 느긋하게
+}
+scheduleEmptyBlink();
 /* 마스코트: 눈 깜빡임만. 몸은 움직이지 않는다.
    배를 부풀리는 숨쉬기도 넣어봤지만, 도트 그림이라 한 칸만 움직여도
    덩어리가 들썩이는 것처럼 보여서 뺐다. */
