@@ -149,7 +149,7 @@
   .appbar .tools{display:flex;gap:8px;align-items:center;}
   .appbar .gtext{flex:1;min-width:0;}
   .mwrap{position:relative;flex:0 0 52px;}
-  .mascot{width:52px;height:74px;padding:0;display:block;margin-bottom:2px;}
+  .mascot{width:56px;height:80px;padding:0;display:block;margin-bottom:2px;}
   .bubblerow{padding:0 20px 4px;display:flex;justify-content:flex-end;}
   .bubble{position:relative;max-width:100%;background:var(--accent-soft);color:var(--accent-ink);
     padding:12px 15px;border-radius:15px;font-size:13.2px;font-weight:700;line-height:1.5;
@@ -253,7 +253,7 @@
   .pill.done{background:var(--ok-soft);color:var(--ok);}
   .empty{padding:26px 16px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.6;border:1px dashed var(--line);border-radius:16px;}
   /* 빈 화면의 쥐돌이 — 안내문 위에 작게 선다 */
-  .empty .mz{width:52px;height:74px;margin:0 auto 12px;opacity:.92;}
+  .empty .mz{width:56px;height:80px;margin:0 auto 12px;opacity:.92;}
   .empty .mz svg{width:100%;height:100%;display:block;}
 
   .banner{display:flex;gap:10px;align-items:flex-start;padding:13px 14px;border-radius:14px;font-size:12.8px;line-height:1.55;margin-top:14px;}
@@ -306,7 +306,7 @@
 
   .result{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;gap:8px;}
   .result .big{font-size:56px;}
-  .result .eatbox{width:78px;height:112px;margin:0 auto 2px;}
+  .result .eatbox{width:84px;height:120px;margin:0 auto 2px;}
   .result .eatbox svg{width:100%;height:100%;display:block;}
   .result h2{margin:6px 0 0;font-size:24px;font-weight:800;}
   .result p{margin:0;font-size:14px;color:var(--muted);line-height:1.6;}
@@ -1019,14 +1019,19 @@ function mouseSVG(mood, puff){
 }
 /* 빈 화면용 쥐돌이 — 글자만 있던 자리를 채운다.
    밤이라도 자는 모습 대신 깨어 있는 얼굴을 쓴다(안내하는 자리라서). */
-function emptyMouse(size){
+/* k 는 도트 한 칸을 몇 px 로 그릴지. 정수만 받는다 —
+   28x40 격자를 소수 배율로 늘리면 칸 경계가 반 px 에 걸려 그림이 지저분해진다. */
+function emptyMouse(k){
   const m = moodOf(new Date().getHours());
-  return `<div class="mz" style="${size?`width:${size}px;height:${Math.round(size*40/28)}px`:""}">`
+  const s = k || 2;
+  return `<div class="mz" style="width:${28*s}px;height:${40*s}px">`
        + mouseSVG(m === "night" ? "day" : m, false) + `</div>`;
 }
-/* 마스코트: 눈 깜빡임 + 배로 숨쉬기 (몸 전체는 움직이지 않는다) */
+/* 마스코트: 눈 깜빡임만. 몸은 움직이지 않는다.
+   배를 부풀리는 숨쉬기도 넣어봤지만, 도트 그림이라 한 칸만 움직여도
+   덩어리가 들썩이는 것처럼 보여서 뺐다. */
 const mascot = {blink:false, puff:false};
-let blinkTimer = null, breathTimer = null;
+let blinkTimer = null;
 function currentMood(){ return moodOf(new Date().getHours()); }
 function reduceMotion(){
   return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -1083,14 +1088,6 @@ function scheduleBlink(){
     }
     scheduleBlink();
   }, 2600 + Math.random()*4200);
-}
-function scheduleBreath(){
-  clearTimeout(breathTimer);
-  if(reduceMotion()) return;
-  breathTimer = setTimeout(()=>{
-    if(mascotAwake() && currentMood() !== "night"){ mascot.puff = !mascot.puff; drawMascot(); }
-    scheduleBreath();
-  }, mascot.puff ? 2300 : 1900);       // 들이쉬고 조금 더 길게 내쉬기
 }
 
 function moodOf(hour){
@@ -1238,7 +1235,6 @@ function renderGreeting(){
   $("#mbubble").innerHTML = `${c.ico} ${esc(c.msg)}`;
   drawMascot();
   scheduleBlink();
-  scheduleBreath();
   if(!sipDoneToday && currentMood() === "morning"){
     sipDoneToday = true;
     setTimeout(playSip, 600);              // 화면이 자리잡은 뒤에
@@ -1332,7 +1328,7 @@ function tempBadge(d){
 /* 검색 결과가 없을 때: 무엇을 찾고 있었는지 보여주고 빠져나갈 길을 준다 */
 function noResultHTML(q, what){
   return `<div class="empty" style="padding-bottom:18px">
-    ${emptyMouse(44)}
+    ${emptyMouse(2)}
     “${esc(q)}”에 맞는 ${what} 없어요.
     <button class="cta ghost" data-clearq="1" style="margin-top:16px">검색 지우기</button>
   </div>`;
@@ -1706,7 +1702,7 @@ function renderShelf(){
   const groups = shelfGroups();
 
   if(!data.shelf.length){
-    box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(48)}등록된 내품기가 없어요.<br>오른쪽 위 + 로 추가하면<br>기한별로 여기에 묶여서 보입니다.</div>`;
+    box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 내품기가 없어요.<br>오른쪽 위 + 로 추가하면<br>기한별로 여기에 묶여서 보입니다.</div>`;
     return;
   }
   let html = "";
@@ -1765,7 +1761,7 @@ function renderList(){
   let html = "";
   if(!data.drinks.length && !q){                   // 처음 왔을 때는 분류 대신 길을 알려준다
     $("#listBody").innerHTML = `<div class="empty" style="padding:30px 18px 22px">
-        ${emptyMouse(60)}
+        ${emptyMouse(3)}
         <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">아직 레시피가 없어요</b>
         오른쪽 위 <b>+</b> 로 직접 넣거나<br>사진 속 글자를 붙여넣어 등록할 수 있어요.<br>
         어떤 앱인지 먼저 둘러보시려면 아래를 눌러보세요.
@@ -1922,7 +1918,8 @@ function segMove(e){
   e.preventDefault();
   const has = !!segNeighbor(dx < 0 ? 1 : -1);
   const pull = has ? 0.38 : 0.12;                       // 끝 칸에서는 거의 안 밀린다
-  $("#listPane").style.transform = `translateX(${dx * pull}px)`;
+  // 소수점 이동은 도트 그림을 반 칸씩 다시 그리게 만들어 쥐돌이가 들썩여 보인다.
+  $("#listPane").style.transform = `translateX(${Math.round(dx * pull)}px)`;
 }
 function segEnd(){
   if(!segS.on) return;
@@ -1996,7 +1993,7 @@ function renderSubTab(){
           : (e.uses.length > 1 ? `<span class="pill done">${e.uses.length}곳</span>` : "")}
       </button>`).join("")
     : (q ? noResultHTML(q, "부재료가")
-         : `<div class="empty" style="padding-bottom:18px">${emptyMouse(48)}등록된 부재료가 없어요.<br>레시피를 수정할 때 아래쪽 <b>부재료 레시피</b>에서 추가하면<br>여기에 모여서 보입니다.</div>`);
+         : `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 부재료가 없어요.<br>레시피를 수정할 때 아래쪽 <b>부재료 레시피</b>에서 추가하면<br>여기에 모여서 보입니다.</div>`);
   box.querySelectorAll(".row").forEach(b=>
     b.addEventListener("click", ()=>openSubSheet(b.dataset.key)));
 }
