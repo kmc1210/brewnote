@@ -438,7 +438,10 @@
   .shelfrow .nm{flex:1;min-width:0;font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .shelfrow .du{flex:0 0 auto;font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;}
   /* 세그먼트를 좌우로 밀어 넘길 때 본문이 따라 움직인다 */
-  .pane{transition:transform .2s ease, opacity .2s ease;}
+  /* transform 을 항상 걸어둔다. 애니메이션이 끝날 때 transform 을 없애면
+     합성 레이어가 해제되면서 도트 그림이 한 번 다시 그려지고,
+     그때 쥐돌이가 살짝 아래로 튀는 것처럼 보인다. */
+  .pane{transition:transform .2s ease, opacity .2s ease;transform:translate3d(0,0,0);}
   .pane.drag{transition:none;}
   @media (prefers-reduced-motion:reduce){ .pane{transition:opacity .15s ease;} }
 
@@ -1760,8 +1763,8 @@ function renderList(){
   const sm = state.selMode;
   let html = "";
   if(!data.drinks.length && !q){                   // 처음 왔을 때는 분류 대신 길을 알려준다
-    $("#listBody").innerHTML = `<div class="empty" style="padding:30px 18px 22px">
-        ${emptyMouse(3)}
+    $("#listBody").innerHTML = `<div class="empty" style="padding:26px 18px 22px">
+        ${emptyMouse(2)}
         <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">아직 레시피가 없어요</b>
         오른쪽 위 <b>+</b> 로 직접 넣거나<br>사진 속 글자를 붙여넣어 등록할 수 있어요.<br>
         어떤 앱인지 먼저 둘러보시려면 아래를 눌러보세요.
@@ -1856,7 +1859,7 @@ document.querySelectorAll("#listSeg button").forEach(b=>{
    (탭과 달리 검색어는 그대로 둔다)
    ========================================================= */
 const SEG_ORDER = ["recipe", "sub", "shelf"];
-const segS = { on:false, axis:"", x0:0, y0:0, id:null, w:0, busy:false };
+const segS = { on:false, axis:"", x0:0, y0:0, id:null, w:0, busy:false, dx:0 };
 
 function segBlocked(t){
   if($("#sheet").classList.contains("on")) return true;
@@ -1877,20 +1880,21 @@ function segSlideTo(tab, dir){
   const pane = $("#listPane");
   const still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const off = 42;
+  const at = px => `translate3d(${still ? 0 : px}px,0,0)`;   // 레이어를 놓지 않는다
   segS.busy = true;
   pane.classList.remove("drag");
-  pane.style.transform = still ? "" : `translateX(${dir < 0 ? -off : off}px)`;
+  pane.style.transform = at(dir < 0 ? -off : off);
   pane.style.opacity = "0";
   setTimeout(()=>{
     state.listTab = tab;
     renderList();                                      // 검색어는 지우지 않는다
     pane.style.transition = "none";
-    pane.style.transform = still ? "" : `translateX(${dir < 0 ? off : -off}px)`;
+    pane.style.transform = at(dir < 0 ? off : -off);
     requestAnimationFrame(()=>{
       pane.style.transition = "";
-      pane.style.transform = "translateX(0px)";
+      pane.style.transform = at(0);
       pane.style.opacity = "1";
-      setTimeout(()=>{ pane.style.transform = ""; pane.style.opacity = ""; segS.busy = false; }, 220);
+      setTimeout(()=>{ pane.style.opacity = "1"; segS.busy = false; }, 220);
     });
   }, still ? 120 : 190);
 }
@@ -1902,7 +1906,7 @@ function segStart(e){
   const r = $("#s-list").getBoundingClientRect();
   if(t.clientX - r.left < 24 || r.right - t.clientX < 24) return;   // 가장자리는 iOS 몫
   segS.on = true; segS.axis = ""; segS.x0 = t.clientX; segS.y0 = t.clientY;
-  segS.w = r.width; segS.id = t.identifier;
+  segS.w = r.width; segS.id = t.identifier; segS.dx = 0;
 }
 function segMove(e){
   if(!segS.on) return;
@@ -1919,7 +1923,8 @@ function segMove(e){
   const has = !!segNeighbor(dx < 0 ? 1 : -1);
   const pull = has ? 0.38 : 0.12;                       // 끝 칸에서는 거의 안 밀린다
   // 소수점 이동은 도트 그림을 반 칸씩 다시 그리게 만들어 쥐돌이가 들썩여 보인다.
-  $("#listPane").style.transform = `translateX(${Math.round(dx * pull)}px)`;
+  segS.dx = Math.round(dx * pull);                      // 민 거리는 여기에 들고 있는다
+  $("#listPane").style.transform = `translate3d(${segS.dx}px,0,0)`;
 }
 function segEnd(){
   if(!segS.on) return;
@@ -1927,15 +1932,14 @@ function segEnd(){
   segS.on = false; segS.axis = "";
   const pane = $("#listPane");
   if(axis !== "x") return;
-  const dx = (parseFloat((pane.style.transform.match(/-?[\d.]+/) || [0])[0]) || 0);
+  const dx = segS.dx; segS.dx = 0;                     // style 을 되읽지 않는다
   pane.classList.remove("drag");
   const dir = dx < 0 ? 1 : -1;
   const next = segNeighbor(dir);
   if(next && Math.abs(dx) > segS.w * 0.06){            // 충분히 밀었으면 넘어간다
     segSlideTo(next, dir);
   } else {
-    pane.style.transform = "translateX(0px)";
-    setTimeout(()=>{ if(!segS.busy) pane.style.transform = ""; }, 220);
+    pane.style.transform = "translate3d(0px,0,0)";     // 원위치. transform 은 그대로 둔다
   }
 }
 $("#s-list").addEventListener("click", e=>{
