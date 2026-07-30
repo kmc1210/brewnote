@@ -437,6 +437,12 @@
     background:var(--accent-soft);color:var(--accent-ink);}
   .shelfrow .nm{flex:1;min-width:0;font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .shelfrow .du{flex:0 0 auto;font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  /* 메모: 여러 줄 글이 주인공이라 세로로 쌓는다 */
+  .memorow{display:block;padding:14px;background:var(--surface);border:1px solid var(--line);
+    border-radius:16px;margin-bottom:9px;width:100%;text-align:left;}
+  .memorow .mtxt{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;
+    font-size:14.5px;line-height:1.55;white-space:pre-line;word-break:break-word;color:var(--ink);}
+  .memorow .mat{display:block;margin-top:8px;font-size:11.5px;font-weight:700;color:var(--muted);}
   /* 세그먼트를 좌우로 밀어 넘길 때 본문이 따라 움직인다 */
   /* transform 을 항상 걸어둔다. 애니메이션이 끝날 때 transform 을 없애면
      합성 레이어가 해제되면서 도트 그림이 한 번 다시 그려지고,
@@ -604,6 +610,7 @@
           <button data-tab="recipe">레시피</button>
           <button data-tab="sub">부재료</button>
           <button data-tab="shelf">내품기</button>
+          <button data-tab="memo">메모</button>
         </div>
         <div class="searchrow">
           <div class="search"><span style="color:var(--muted);font-size:15px">🔍</span>
@@ -614,6 +621,7 @@
           <div id="listBody"></div>
           <div id="subBody"></div>
           <div id="shelfBody"></div>
+          <div id="memoBody"></div>
         </div>
       </div>
       <div class="selactions" id="selActions">
@@ -952,6 +960,8 @@ if(!Array.isArray(data.cats) || !data.cats.length){
 }
 if(!Array.isArray(data.shelf)) data.shelf = [];
 data.shelf.forEach(s=>{ if(!s.id) s.id = uid(); });
+if(!Array.isArray(data.memos)) data.memos = [];     // 예전 백업에는 없는 항목 — 빈 목록으로 시작
+data.memos.forEach(m=>{ if(!m.id) m.id = uid(); if(typeof m.text !== "string") m.text = ""; });
 data.drinks.forEach(d=>{
   if(!Array.isArray(d.subs)) d.subs = [];
   d.subs.forEach(s=>{ if(typeof s.place !== "string") s.place = ""; if(typeof s.dur !== "string") s.dur = ""; });
@@ -1386,6 +1396,10 @@ function renderListSub(){
       + (used.size ? " · 메뉴 " + used.size + "곳에 사용" : "");
     return;
   }
+  if(state.listTab === "memo"){
+    el.textContent = "메모 " + data.memos.length + "개";
+    return;
+  }
   const done = data.drinks.filter(d=>has(data.mastered,d.id)).length;
   el.textContent = "레시피 " + data.drinks.length + "개 · 외운 것 " + done + "개";
 }
@@ -1777,15 +1791,18 @@ function renderList(){
   const tab = state.listTab;
   const shelfMode = tab === "shelf";
   const subMode   = tab === "sub";
+  const memoMode  = tab === "memo";
   renderListSub();
-  $("#listBody").style.display  = (!shelfMode && !subMode) ? "block" : "none";
+  $("#listBody").style.display  = (!shelfMode && !subMode && !memoMode) ? "block" : "none";
   $("#subBody").style.display   = subMode   ? "block" : "none";
   $("#shelfBody").style.display = shelfMode ? "block" : "none";
+  $("#memoBody").style.display  = memoMode  ? "block" : "none";
   $("#q").placeholder = shelfMode ? "항목 · 기한으로 검색"
-    : (subMode ? "부재료 이름 · 쓰이는 메뉴로 검색" : "메뉴 이름 · 재료로 검색");
+    : (subMode ? "부재료 이름 · 쓰이는 메뉴로 검색"
+    : (memoMode ? "메모 내용으로 검색" : "메뉴 이름 · 재료로 검색"));
   $("#newBtn").style.display = subMode ? "none" : "flex";   // 부재료는 보기 전용
-  if(shelfMode || subMode){
-    if(shelfMode) renderShelf(); else renderSubTab();
+  if(shelfMode || subMode || memoMode){
+    if(shelfMode) renderShelf(); else if(memoMode) renderMemoTab(); else renderSubTab();
     $("#listBar").style.display = "flex";
     $("#selBar").style.display = "none";
     $("#selActions").classList.remove("on");
@@ -1892,7 +1909,7 @@ document.querySelectorAll("#listSeg button").forEach(b=>{
    레시피 화면 안에서 좌우로 밀어 세그먼트 이동
    (탭과 달리 검색어는 그대로 둔다)
    ========================================================= */
-const SEG_ORDER = ["recipe", "sub", "shelf"];
+const SEG_ORDER = ["recipe", "sub", "shelf", "memo"];
 const segS = { on:false, axis:"", x0:0, y0:0, id:null, w:0, busy:false, dx:0 };
 
 function segBlocked(t){
@@ -2063,6 +2080,63 @@ function openSubSheet(key){
 }
 
 /* ---------- 내품기 ---------- */
+/* ---------- 메모 ---------- */
+function fmtMemoAt(at){
+  const d = new Date(at);
+  if(isNaN(d)) return "";
+  const now = new Date();
+  const t = String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+  if(ymd(d) === ymd(now)) return "오늘 " + t;
+  const day = (d.getMonth()+1) + "월 " + d.getDate() + "일";
+  return (d.getFullYear() === now.getFullYear() ? day : d.getFullYear() + "년 " + day) + " " + t;
+}
+function renderMemoTab(){
+  const q = ($("#q").value||"").trim().toLowerCase();
+  const box = $("#memoBody");
+  const list = data.memos.slice().sort((a,b)=>String(b.at||"").localeCompare(String(a.at||"")));
+  const hit = q ? list.filter(m=>m.text.toLowerCase().indexOf(q) >= 0) : list;
+  if(!list.length && !q){
+    box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}아직 메모가 없어요.<br>인수인계, 공지, 떠오른 아이디어 —<br>오른쪽 위 <b>+</b> 로 적어두세요.</div>`;
+    return;
+  }
+  box.innerHTML = hit.length
+    ? hit.map(m=>`<button class="memorow" data-id="${esc(m.id)}">
+        <span class="mtxt">${esc(m.text)}</span>
+        <span class="mat">${esc(fmtMemoAt(m.at))}</span>
+      </button>`).join("")
+    : noResultHTML(q, "메모가");
+  box.querySelectorAll(".memorow").forEach(b=>b.addEventListener("click", ()=>
+    openMemoSheet(data.memos.findIndex(x=>x.id===b.dataset.id))));
+}
+function openMemoSheet(idx){
+  const isNew = (idx === null || idx < 0);
+  const m = isNew ? {text:""} : data.memos[idx];
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">${isNew?"새 메모":"메모"}</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px">${isNew?"이 아이폰 안에만 저장됩니다":esc(fmtMemoAt(m.at))}</div>
+    <div class="fld"><textarea id="mm-text" rows="7" placeholder="인수인계, 공지, 아이디어…" style="min-height:150px">${esc(m.text)}</textarea></div>
+    <button class="cta" id="mmSave">저장</button>
+    ${isNew?"":`<button class="cta danger" id="mmDel">삭제</button>`}`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  if(isNew) setTimeout(()=>$("#mm-text").focus(), 250);
+  $("#mmSave").addEventListener("click", ()=>{
+    const text = $("#mm-text").value.trim();
+    if(!text){ toast("내용을 입력해 주세요"); return; }
+    if(isNew) data.memos.push({id:uid(), text:text, at:new Date().toISOString()});
+    else data.memos[idx].text = text;                 // 고칠 때 작성 시각은 그대로 둔다
+    persist(); closeSheet(); renderList();
+    toast(isNew ? "메모했어요" : "수정했어요");
+  });
+  const del = $("#mmDel");
+  if(del) del.addEventListener("click", ()=>{
+    closeSheet();
+    confirmBox("메모 삭제", "이 메모를 삭제할까요?", "삭제", ()=>{
+      data.memos.splice(idx,1);
+      persist(); renderList(); toast("삭제했어요");
+    });
+  });
+}
+
 function openShelfSheet(idx){
   const s = (idx === null || idx < 0) ? {name:"", place:"냉장", dur:"", note:""} : data.shelf[idx];
   const isNew = (idx === null || idx < 0);
@@ -2114,6 +2188,7 @@ function openShelfSheet(idx){
 /* + 를 누르면 입력 방식을 고르는 시트 */
 $("#newBtn").addEventListener("click", ()=>{
   if(state.listTab === "shelf"){ openShelfSheet(null); return; }
+  if(state.listTab === "memo"){ openMemoSheet(null); return; }
   $("#sheetBody").innerHTML = `
     <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">레시피 추가</h2>
     <div style="font-size:12.5px;color:var(--muted);margin-bottom:20px">어떻게 넣을까요?</div>
@@ -2951,7 +3026,10 @@ function applyBackup(text){
       id:String(s.id||uid()), name:String(s.name||""), place:String(s.place||""),
       dur:String(s.dur||""), note:String(s.note||"")
     })) : [];
-    data = {v:1, mode:keepMode, theme:keepTheme, enCase:keepEn, pin:data.pin, visit:(d.visit || data.visit), cats:keepCats, shelf:keepShelf,
+    const keepMemos = Array.isArray(d.memos) ? d.memos.map(m=>({
+      id:String(m.id||uid()), text:String(m.text||""), at:String(m.at||"")
+    })).filter(m=>m.text) : [];
+    data = {v:1, mode:keepMode, theme:keepTheme, enCase:keepEn, pin:data.pin, visit:(d.visit || data.visit), cats:keepCats, shelf:keepShelf, memos:keepMemos,
       drinks:d.drinks.map(x=>({
         id:x.id||uid(), cat:x.cat, name:String(x.name||""), en:String(x.en||""),
         temp:String(x.temp||""), cups:Array.isArray(x.cups)?x.cups.map(String):(x.cup?[String(x.cup)]:[]),
