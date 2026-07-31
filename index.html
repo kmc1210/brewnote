@@ -571,7 +571,11 @@
         </div>
 
         <div class="sect">
-          <div class="sect-h"><h3>복습이 필요해요</h3><span id="reviewCount"></span></div>
+          <div class="sect-h"><h3>복습이 필요해요</h3>
+            <span style="display:flex;gap:12px;align-items:baseline">
+              <button class="linkbtn" id="revStudy" style="display:none">이것만 학습</button>
+              <span id="reviewCount"></span>
+            </span></div>
           <div id="reviewList"></div>
         </div>
       </div>
@@ -1487,6 +1491,7 @@ function renderHome(){
 
   const rev = data.drinks.filter(d=>has(data.needReview,d.id));
   $("#reviewCount").textContent = rev.length ? rev.length+"개" : "";
+  $("#revStudy").style.display = rev.length ? "inline" : "none";
   $("#reviewList").innerHTML = rev.length ? rev.map(d=>rowHTML(d,"다시")).join("")
     : `<div class="empty">학습 중 <b>“다시 볼래요”</b>를 누른 메뉴가<br>여기에 모입니다.</div>`;
   bindRows("#reviewList");
@@ -1589,10 +1594,16 @@ function openModeSheet(){
   });
 }
 $("#startBtn").addEventListener("click", openModeSheet);
+$("#revStudy").addEventListener("click", ()=>{        // 다시 볼래요 목록만 돌린다
+  const rev = data.drinks.filter(d=>has(data.needReview, d.id));
+  if(rev.length) startSession(rev);
+});
 
 /* ---------- 학습 ---------- */
-function startSession(){
-  const pool = drinksOf(state.filter).slice();
+function startSession(customPool){
+  const custom = Array.isArray(customPool) ? customPool.slice() : null;   // 이벤트 객체가 넘어와도 무시
+  state.deckIds = custom ? custom.map(d=>d.id) : null;
+  const pool = custom || drinksOf(state.filter).slice();
   if(!pool.length){ toast("학습할 레시피가 없어요"); go("list"); return; }
   for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=pool[i]; pool[i]=pool[j]; pool[j]=t; }
   state.deck = pool; state.idx = 0; state.flipped = false;
@@ -1751,16 +1762,37 @@ function startEat(){
 }
 function stopEat(){ if(eatT){ clearInterval(eatT); eatT = null; } }
 
-$("#againBtn").addEventListener("click", startSession);
+$("#againBtn").addEventListener("click", ()=>{      // 직전과 같은 범위로 다시
+  if(state.deckIds){
+    const pool = data.drinks.filter(d=>state.deckIds.indexOf(d.id) >= 0);
+    if(pool.length){ startSession(pool); return; }
+  }
+  startSession();
+});
 $("#homeBtn").addEventListener("click", ()=>go("home"));
 
 /* ---------- 목록 ---------- */
+/* 초성 검색 — 질문이 ㅋㅍㅁㅋ 처럼 초성으로만 되어 있으면 초성끼리 비교한다 */
+const CHO_LIST = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+function choStr(str){
+  let out = "";
+  for(const ch of String(str)){
+    const c = ch.charCodeAt(0);
+    out += (c >= 0xAC00 && c <= 0xD7A3) ? CHO_LIST[Math.floor((c - 0xAC00) / 588)] : ch;
+  }
+  return out;
+}
+function textHit(hay, q){
+  if(!q) return true;
+  const t = String(hay||"").toLowerCase();
+  if(t.indexOf(q) >= 0) return true;
+  const qq = q.replace(/\s+/g, "");
+  if(!/^[ㄱ-ㅎ]+$/.test(qq)) return false;
+  return choStr(t).replace(/\s+/g, "").indexOf(qq) >= 0;
+}
 function visibleDrinks(){
   const q = ($("#q").value||"").trim().toLowerCase();
-  return data.drinks.filter(d=>{
-    if(!q) return true;
-    return (d.name+" "+(d.en||"")+" "+d.ing.map(i=>i[0]).join(" ")).toLowerCase().indexOf(q)>=0;
-  });
+  return data.drinks.filter(d=>textHit(d.name+" "+(d.en||"")+" "+d.ing.map(i=>i[0]).join(" "), q));
 }
 /* 기한(일) 별로 묶어서 개봉일→폐기일 조합을 만든다. 개봉일 포함 N일 → 폐기일 = 개봉일 + (N-1) */
 function tagGroups(){
@@ -1888,7 +1920,7 @@ function renderShelf(){
   let html = "";
   groups.forEach(g=>{
     const items = g.items.filter(s=>!q ||
-      (s.name+" "+(s.place||"")+" "+(s.dur||"")).toLowerCase().indexOf(q) >= 0);
+      textHit(s.name+" "+(s.place||"")+" "+(s.dur||""), q));
     if(!items.length) return;
     const open = q ? true : state.shelfOpen.has(g.days);      // 검색 중엔 다 펼친다
     const label = g.days ? g.days + "일" : "미정";
@@ -2159,10 +2191,8 @@ function subIndex(){
   return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
 }
 function subMatch(e, q){
-  if(!q) return true;
-  const hay = [e.name, e.uses.map(u=>u.name).join(" "),
-    e.variants.map(v=>(v.sub.ing||[]).map(i=>i[0]+" "+i[1]).join(" ")).join(" ")].join(" ").toLowerCase();
-  return hay.indexOf(q) >= 0;
+  return textHit([e.name, e.uses.map(u=>u.name).join(" "),
+    e.variants.map(v=>(v.sub.ing||[]).map(i=>i[0]+" "+i[1]).join(" ")).join(" ")].join(" "), q);
 }
 function renderSubTab(){
   const q = ($("#q").value||"").trim().toLowerCase();
@@ -2226,7 +2256,7 @@ function renderMemoTab(){
     if(!!a.pin !== !!b.pin) return a.pin ? -1 : 1;          // 고정 먼저
     return String(b.at||"").localeCompare(String(a.at||""));  // 그 안에서는 최신순
   });
-  const hit = q ? list.filter(m=>m.text.toLowerCase().indexOf(q) >= 0) : list;
+  const hit = q ? list.filter(m=>textHit(m.text, q)) : list;
   if(!list.length && !q){
     box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}아직 메모가 없어요.<br>인수인계, 공지, 떠오른 아이디어 —<br>오른쪽 위 <b>+</b> 로 적어두세요.</div>`;
     return;
@@ -2359,11 +2389,11 @@ function openSheet(id){
     <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">${[enText(d.en),d.temp,cupText(d)].filter(Boolean).map(esc).join(" · ")}</div>
     ${detailHTML(d)}
     <button class="cta" id="sheetEdit" style="margin-top:22px">수정하기</button>
-    <button class="cta ghost" id="sheetStudy">이 카테고리만 학습</button>
+    <button class="cta ghost" id="sheetStudy">이 메뉴만 학습</button>
     <button class="cta danger" id="sheetDel">삭제하기</button>`;
   $("#mask").classList.add("on"); $("#sheet").classList.add("on");
   $("#sheetEdit").addEventListener("click", ()=>{ closeSheet(); openEditor(d.id); });
-  $("#sheetStudy").addEventListener("click", ()=>{ state.filter = d.cat; closeSheet(); startSession(); });
+  $("#sheetStudy").addEventListener("click", ()=>{ closeSheet(); startSession([d]); });
   $("#sheetDel").addEventListener("click", ()=>{
     closeSheet();
     confirmBox("레시피 삭제", `“${d.name}”를 삭제할까요? 되돌릴 수 없어요.`, "삭제", ()=>{
