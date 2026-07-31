@@ -162,6 +162,14 @@
   @media (prefers-reduced-motion:reduce){ .bubble.pop{animation:none;} }
   .mascot svg{display:block;width:100%;height:100%;}
   .mascot:active{transform:scale(.94);}
+  /* 비상 달리기 레이어 — 홈 위에 겹쳐 그리고 터치는 통과시킨다 */
+  #panicLayer{position:absolute;left:0;right:0;top:0;height:300px;pointer-events:none;z-index:40;display:none;}
+  #panicLayer.on{display:block;}
+  #panicRun{position:absolute;left:0;top:0;width:56px;height:80px;will-change:transform;}
+  #panicRun svg{width:100%;height:100%;display:block;}
+  #panicSh{position:absolute;left:0;top:0;width:34px;height:9px;border-radius:50%;
+    background:rgba(90,65,50,.22);will-change:transform;transition:opacity .1s linear;}
+  @media (prefers-reduced-motion:reduce){ #panicLayer{display:none !important;} }
 
   .appbar .add.soft{background:var(--surface);border:1px solid var(--line);color:var(--ink-2);font-size:18px;padding-bottom:0;}
 
@@ -531,6 +539,7 @@
         </div>
       </div>
       <div class="bubblerow"><div class="bubble" id="mbubble"></div></div>
+      <div id="panicLayer" aria-hidden="true"><div id="panicSh"></div><div id="panicRun"></div></div>
       <div class="scroll">
         <div class="hero">
           <div class="ring">
@@ -1014,6 +1023,10 @@ function mouseSVG(mood, puff){
     const belly = puff ? BELLY.puff : BELLY.normal; // 서 있을 땐 배만 한 겹 부푼다
     for(let i=0;i<belly.length;i++) rows[BELLY.y0+i] = belly[i];
   }
+  return rowsSVG(rows, false);
+}
+/* 도트 행 배열 → SVG. flip 이면 좌우 반전(달리는 방향 바꿀 때) */
+function rowsSVG(rows, flip){
   const hh = rows.length, ww = rows[0].length;
   let out = "";
   for(let y=0; y<hh; y++){
@@ -1024,12 +1037,73 @@ function mouseSVG(mood, puff){
       if(ch === "."){ x++; continue; }
       let n = 1;
       while(x+n < ww && r[x+n] === ch) n++;
-      out += '<rect x="'+x+'" y="'+y+'" width="'+n+'" height="1" fill="'+MOUSE_PAL[ch]+'"/>';
+      const px = flip ? ww - x - n : x;
+      out += '<rect x="'+px+'" y="'+y+'" width="'+n+'" height="1" fill="'+MOUSE_PAL[ch]+'"/>';
       x += n;
     }
   }
   return '<svg viewBox="0 0 '+ww+' '+hh+'" shape-rendering="crispEdges" aria-hidden="true">'+out+'</svg>';
 }
+const RUN_SPR = {
+  s0:["...........oo...............","..........oppo..............",".........opdppo.ooo.........","........opdddpoopppo........","........opdddpooppppo.......","........opdddpopppppo.......","........opdddwwcppppo.......","......oowcdddwwwcwppo.......",".....ocwwwwdwwwwwwwco.......","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","....owcwwwwwwwwwwwwwwwwcwo..","....oppppwwwwwwwwwwwwwwwco..","...owppppcwwwwwwwwwwwwwwcwo.","...ocppppcwwwwwwwwwwwwcwwco.","...owddddwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","....oooocwwwwwwwwwppppoo....","...oppppowcwwwwwwwddddo.....","...oddddooocwwwwwwcooo......","....oooo...oooooooo........."],
+  s1:["............................","............................","...........oooo.............","..........opddpo..oo........","..........opddpo.oppo.......",".........opddddpoppppo......","........oocddddcopppppo.....","......oowcwwdddwcwppppo.....",".....ocwwwwwddwwwwwcppo.....","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","....owcwwwwwwwwwwwwwwwwcwo..","...oppppwwwwwwwwwwwwwwwwco..","...oppppcwwwwwwwwwwwwwwwcwo.","...oppppcwwwwwwwwwwwwwcwwco.","...oddddwwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......oocwwwwwwppppwwcoo....",".......oppppwwwddddcwo......",".......oddddwwwwwwcoo.......","........ooooooooooo........."],
+  s2:["...........oo...............","..........oppo..............",".........opdppo.ooo.........","........opdddpoopppo........","........opdddpooppppo.......","........opdddpopppppo.......","........opdddwwcppppo.......","......oowcdddwwwcwppo.......",".....ocwwwwdwwwwwwwco.......","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","...oowcwwwwwwwwwwwwwwwwcwo..","..oppppwwwwwwwwwwwwwwwwwco..","..oppppcwwwwwwwwwwwwwwwwcwo.","..oppppcwwwwwwwwwwwwwwcwwco.","..oddddwwwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......oocppppwwwwwwwwcoo....","........oddddwppppwcwo......",".........oocwwddddcoo.......","...........oooooooo........."],
+  s3:["............................","............................","...........oooo.............","..........opddpo..oo........","..........opddpo.oppo.......",".........opddddpoppppo......","........oocddddcopppppo.....","......oowcwwdddwcwppppo.....",".....ocwwwwwddwwwwwcppo.....","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","....owcwwwwwwwwwwwwwwwwcwo..","...oppppwwwwwwwwwwwwwwwwco..","...oppppcwwwwwwwwwwwwwwwcwo.","...oppppcwwwwwwwwwwwwwcwwco.","...oddddwwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......oocwwwwwwwwppppcoo....",".....oppppcwwwwwwddddo......",".....oddddocwwwwwwcoo.......","......oooo.oooooooo........."],
+  qf:[".......o.........o..........","......opo.......opo.........",".....opppo.....opppo........",".....oppppo...oppppo........","....opppppoo.oopppppo.......","....oppppwcwowcwppppo.......","....oppcwwwwwwwwwcppo.......","....owcwwwwwwwwwwwcwo.......","....ocwwwwwwwwwwwwwco.......","....owcwwwwwwwwwwwwcwo......","...ocoowwwwwwooowwwwwco.....","...oohhowwwwohhhowwwwcwo....","..ocokhowwwwohkhowwwwwco....","..owokhowwwwohkhowwwwcwo....","..ocohhowwwwohhhowwwwwco....","..owcoowwwwwwooowwwwwcwo....","..ocwwwwnnwwwwwwwwwwwwco....","..owcwwwnwwwwwwwwwwwwwcwo...","..ocwwwwwwwwwwwwwwwwwwwco...","..owcwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwcwwwwwco....","...owcccwwwwwcccwwwwwcwo....","....ocwwcccccwwwwwwwwco.....",".....owcwwwwwwwwwwwwwcwo....","....ocwcwcwwwwwcwcwcwwwco...","...oowcwwwwcwcwwwwwwwwwcwo..","..oppppwwwwwcwwwwwwwwwpppo..","..oppppcwwwwwwwwwwwwwcpppo..","..oppppcwwcwwwwwwwwwwwpppco.","..oddddwwwwwwwwwwwwwwwdddwo.","...ocwwwwwwwwwcwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwcwo..","...ocwwwwcwwwwwwwwwwwwwwco..","....owcwwwwwwwwwcwwwwwwcwo..","....ocwwwwwwwwwwwwwwwwwco...",".....owcwwwwwwwwwwwwwcwo....","......ocwwwwwwwwppppwco.....",".....oppppcwwwwwddddwo......",".....oddddocwwwwwcooo.......","......oooo.ooooooo.........."],
+  qb:["..........o.......o.........",".........opo.....opo........","........opppo...opppo.......","........oppppo.oppppo.......",".......opppppooopppppo......",".......oppppwcwcwppppo......",".......oppcwwwwwwwcppo......",".......owcwwwwwwwwwcwo......","......oocwwwwwwwwwwwco......",".....owcwwwwwwwwwwwwcwo.....","....ocwwwwwwwwwwwwwwwwco....","...owcwwwcwwwwcwwwwcwcwo....","...ocwwwcwwwwcwwwwcwwwwco...","...owcwwwwwwcwwwwcwwwwcwo...","...ocwwwwwwcwwwwcwwwwwwco...","...owcwwwwcwwwwcwwwwwwcwo...","...ocwwwwwwwwwwwwwwwwwwco...","..occwwwwwwwwwwwwwwwwwcwo...","..ocwwwwwwwwwwwcwwwwwwwco...","..owcwwwwwwwcwwwwwwwwwcwo...","...ocwwcwwwwwwwwwwwwwwwco...","...owcwwwwwwcwwwwwwwwcwo....","....ocwwwwwwwwwwcwwwwco.....",".....owcwwwwcwwwwwwwwcwo....","....ocwwwwcwwwwwwwwwwwwco...","...owcwwwwwwcwwwwwwwwwcwoo..","...ocwwwwwwwwwwwwwwwcwwpppo.","...owccwwwwwcwwwwwwwwwcpppo.","..ocwwwwwwwwwwwwwwwwwwwpppo.","..owcwwwwwwwcwwwwwwwwwwdddo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...owcwwwwwwcwwwwwwwwwwcwo..","...ocwwwwwwwwwwwwwwwwwwwco..","...owcwwwwwwcwwcwwwwwwcwo...","....occcwwccwwwccwwwwccco...",".....owcccwwwwwwwcccccwo....","......ocwwwwwwwwwppppco.....","......oppppwwwwwwddddo......","......oddddcwwwwwcooo.......",".......ooooooooooo.........."],
+  bk:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwwcwwwwcwwwwwwcwo....","...ocwwwwwwwwcwwwwcwwwwco...","..owcwwwwwwwcwwwwcwwwwwcwo..","...ocwwwwwwcwwwwcwwwwwwco...","...owcwwwwcwwwwcwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwcco..","..owcwwwwwwwwcwwwwwwwwwcwo..","..ocwwwwwwwwwwcwwwwwwwwwco..","..owccwwwwwwwcwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwcwccccwwwwco..","..owcwwwwwwwwcwwwwwwwwwcwo..",".oocwwwwwwwwwwcwwwwwwwwwcoo.","owcwwwwwwwwwwcwwwwwwwwwwwcwo",".ocwwwwwwwwwwwcwwwwwwwwwwco.",".owwwcwwwwwwwcwwwwwwwwcwwwo.","ocwwwcwwwwwwwwcwwwwwwwcwwwco",".owwwcwwwwwwwcwwwwwwwwcwwwo.",".ocwwcwwwwwwwwcwwwwwwwcwwco.",".owcwwwwwwwwwcwwwwwwwwwwcwo.","..ocwwwwwwwwwwcwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."]
+};
+
+/* =========================================================
+   비상 달리기 — 오늘 폐기가 있으면 홈에서 두 바퀴 돌고 제자리로.
+   8방향(옆4포즈·사선·정면·뒤) 스프라이트를 타원 궤도로 돌린다.
+   그림자는 바닥에 붙어 있고 몸만 뜬다. 방향 전환은 공중 프레임에서만.
+   ========================================================= */
+let panicT = null, panicDay = null;
+function stopPanic(){
+  if(panicT){ clearInterval(panicT); panicT = null; }
+  const L = $("#panicLayer"); if(L) L.classList.remove("on");
+  const m = $("#mascot"); if(m) m.style.visibility = "";
+}
+function runPanic(laps){
+  if(panicT || reduceMotion()) return;
+  if(!$("#s-home").classList.contains("active")) return;
+  const L = $("#panicLayer"), R = $("#panicRun"), S = $("#panicSh");
+  const W = $("#s-home").clientWidth || 390;
+  const cx = W/2, cy = 168;
+  const rx = Math.min(105, cx - 66), ry = 56;   // 몸(56x80)이 겹치지 않는 최소선 위
+  const FR = 48, total = FR * (laps || 2);
+  let i = 0, prevK = null;
+  stopSip();
+  $("#mascot").style.visibility = "hidden";
+  L.classList.add("on");
+  panicT = setInterval(()=>{
+    if(i >= total || !$("#s-home").classList.contains("active")){
+      stopPanic(); drawMascot(); return;
+    }
+    const t = 2*Math.PI*(i % FR)/FR;             // 꼭대기에서 시계 방향
+    const a = t - Math.PI/2;
+    const mx = cx + rx*Math.cos(a), my = cy + ry*Math.sin(a);
+    let k = Math.floor((t + Math.PI/8)/(Math.PI/4)) % 8;
+    const ph = i % 4;
+    const air = ph === 1 || ph === 3;
+    if(prevK !== null && !air && k !== prevK) k = prevK;  // 공중에서만 몸을 튼다
+    prevK = k;
+    const run = RUN_SPR["s"+ph];
+    const spec = [
+      [run, true],        [RUN_SPR.qf, true],  [MOUSE.day, false], [RUN_SPR.qf, false],
+      [run, false],       [RUN_SPR.qb, false], [RUN_SPR.bk, false],[RUN_SPR.qb, true]
+    ][k];
+    const hop = air ? 4 : 0;
+    R.innerHTML = rowsSVG(spec[0], spec[1]);
+    R.style.transform = "translate3d("+Math.round(mx-28)+"px,"+(Math.round(my-58)-hop)+"px,0)";
+    const fy = Math.round(my + 22);
+    S.style.transform = "translate3d("+Math.round(mx-17)+"px,"+fy+"px,0) scale("+(hop?".8":"1")+")";
+    S.style.opacity = hop ? ".5" : ".8";
+    i++;
+  }, 60);
+}
+
 /* 빈 화면용 쥐돌이 — 글자만 있던 자리를 채운다.
    밤이라도 자는 모습 대신 깨어 있는 얼굴을 쓴다(안내하는 자리라서). */
 /* k 는 도트 한 칸을 몇 px 로 그릴지. 정수만 받는다 —
@@ -1282,6 +1356,17 @@ function renderGreeting(){
   $("#mbubble").innerHTML = `${c.ico} ${esc(c.msg)}`;
   drawMascot();
   scheduleBlink();
+
+  /* 오늘 폐기가 있으면 하루 한 번 비상 달리기. 이게 커피보다 급하다 */
+  let kill = 0;
+  try{ kill = tagGroups().reduce((n2,g)=>n2+g.items.length, 0); }catch(e){}
+  const todayKey = ymd(now);
+  if(kill > 0 && panicDay !== todayKey && !reduceMotion()){
+    panicDay = todayKey;
+    sayBubble("오늘 버릴 게 " + kill + "개 있츄! 비상이츄!");
+    setTimeout(()=>runPanic(2), 700);
+    return;                                 // 이 방문의 커피 모션은 건너뛴다
+  }
   if(!sipDoneToday && currentMood() === "morning"){
     sipDoneToday = true;
     setTimeout(playSip, 600);              // 화면이 자리잡은 뒤에
@@ -1305,7 +1390,7 @@ $("#dlgYes").addEventListener("click", ()=>{ $("#dlg").classList.remove("on"); i
 /* ---------- 화면 전환 ---------- */
 function go(name){
   if(name !== "result") stopEat();
-  if(name !== "home") stopSip();
+  if(name !== "home"){ stopSip(); stopPanic(); }
   if(name !== "list" && state.selMode) exitSel();
   document.querySelectorAll(".screen").forEach(el=>el.classList.remove("active"));
   $("#s-"+name).classList.add("active");
