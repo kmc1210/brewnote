@@ -151,7 +151,7 @@
   .mwrap{position:relative;flex:0 0 52px;}
   .mascot{width:56px;height:80px;padding:0;display:block;margin-bottom:2px;}
   .bubblerow{padding:0 20px 4px;display:flex;justify-content:flex-end;}
-  .bubble{position:relative;max-width:100%;background:var(--accent-soft);color:var(--accent-ink);
+  .bubble{transition:opacity .25s ease;position:relative;max-width:100%;background:var(--accent-soft);color:var(--accent-ink);
     padding:12px 15px;border-radius:15px;font-size:13.2px;font-weight:700;line-height:1.5;
     text-align:right;transform-origin:top right;
     transition:opacity .2s ease, transform .2s ease;}
@@ -169,6 +169,8 @@
   #panicRun svg{width:100%;height:100%;display:block;}
   #panicSh{position:absolute;left:0;top:0;width:34px;height:9px;border-radius:50%;
     background:rgba(90,65,50,.22);will-change:transform;transition:opacity .1s linear;}
+  #panicBell{position:absolute;left:0;top:0;width:26px;height:12px;will-change:transform;}
+  #panicBell svg{width:100%;height:100%;display:block;}
   @media (prefers-reduced-motion:reduce){ #panicLayer{display:none !important;} }
 
   .appbar .add.soft{background:var(--surface);border:1px solid var(--line);color:var(--ink-2);font-size:18px;padding-bottom:0;}
@@ -451,6 +453,8 @@
   .memorow .mtxt{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden;
     font-size:14.5px;line-height:1.55;white-space:pre-line;word-break:break-word;color:var(--ink);}
   .memorow .mat{display:block;margin-top:8px;font-size:11.5px;font-weight:700;color:var(--muted);}
+  .memorow.pinned{border-color:var(--accent);}
+  .memorow .mpin{font-weight:800;color:var(--accent-ink);}
   /* 세그먼트를 좌우로 밀어 넘길 때 본문이 따라 움직인다 */
   /* transform 을 항상 걸어둔다. 애니메이션이 끝날 때 transform 을 없애면
      합성 레이어가 해제되면서 도트 그림이 한 번 다시 그려지고,
@@ -539,7 +543,7 @@
         </div>
       </div>
       <div class="bubblerow"><div class="bubble" id="mbubble"></div></div>
-      <div id="panicLayer" aria-hidden="true"><div id="panicSh"></div><div id="panicRun"></div></div>
+      <div id="panicLayer" aria-hidden="true"><div id="panicSh"></div><div id="panicRun"></div><div id="panicBell"></div></div>
       <div class="scroll">
         <div class="hero">
           <div class="ring">
@@ -970,7 +974,7 @@ if(!Array.isArray(data.cats) || !data.cats.length){
 if(!Array.isArray(data.shelf)) data.shelf = [];
 data.shelf.forEach(s=>{ if(!s.id) s.id = uid(); });
 if(!Array.isArray(data.memos)) data.memos = [];     // 예전 백업에는 없는 항목 — 빈 목록으로 시작
-data.memos.forEach(m=>{ if(!m.id) m.id = uid(); if(typeof m.text !== "string") m.text = ""; });
+data.memos.forEach(m=>{ if(!m.id) m.id = uid(); if(typeof m.text !== "string") m.text = ""; m.pin = !!m.pin; });
 data.drinks.forEach(d=>{
   if(!Array.isArray(d.subs)) d.subs = [];
   d.subs.forEach(s=>{ if(typeof s.place !== "string") s.place = ""; if(typeof s.dur !== "string") s.dur = ""; });
@@ -1059,16 +1063,46 @@ const RUN_SPR = {
    8방향(옆4포즈·사선·정면·뒤) 스프라이트를 타원 궤도로 돌린다.
    그림자는 바닥에 붙어 있고 몸만 뜬다. 방향 전환은 공중 프레임에서만.
    ========================================================= */
+/* 머리 위 경광등 — 스프라이트와 같은 도트 문법, 켜짐엔 빛살 */
+const SIREN = {
+  on: ["y.....y.....y",
+       ".y....y....y.",
+       "......R......",
+       "....rRCRr....",
+       "....rRRRr....",
+       ".....ggg....."],
+  off:[".............",
+       ".............",
+       ".............",
+       "....ddddd....",
+       "....ddddd....",
+       ".....ggg....."]
+};
+const SIREN_PAL = {r:"#CE3C2E", R:"#E85C48", C:"#FFD6C8", d:"#96322A", g:"#786C64", y:"#E85C48"};
+function sirenSVG(lit){
+  const rows = lit ? SIREN.on : SIREN.off;
+  let out = "";
+  for(let y=0; y<rows.length; y++){
+    for(let x=0; x<rows[y].length; x++){
+      const ch = rows[y][x];
+      if(ch !== ".") out += '<rect x="'+x+'" y="'+y+'" width="1" height="1" fill="'+SIREN_PAL[ch]+'"/>';
+    }
+  }
+  return '<svg viewBox="0 0 13 6" shape-rendering="crispEdges" aria-hidden="true">'+out+'</svg>';
+}
+
 let panicT = null, panicDay = null;
 function stopPanic(){
   if(panicT){ clearInterval(panicT); panicT = null; }
   const L = $("#panicLayer"); if(L) L.classList.remove("on");
   const m = $("#mascot"); if(m) m.style.visibility = "";
+  const b = $("#mbubble"); if(b) b.style.opacity = "";
 }
 function runPanic(laps){
   if(panicT || reduceMotion()) return;
   if(!$("#s-home").classList.contains("active")) return;
-  const L = $("#panicLayer"), R = $("#panicRun"), S = $("#panicSh");
+  const L = $("#panicLayer"), R = $("#panicRun"), S = $("#panicSh"), B = $("#panicBell");
+  let panicLit = null;
   const W = $("#s-home").clientWidth || 390;
   const cx = W/2, cy = 168;
   const rx = Math.min(105, cx - 66), ry = 56;   // 몸(56x80)이 겹치지 않는 최소선 위
@@ -1076,10 +1110,14 @@ function runPanic(laps){
   let i = 0, prevK = null;
   stopSip();
   $("#mascot").style.visibility = "hidden";
+  $("#mbubble").style.opacity = "0";        // 주인 없는 말풍선만 떠 있지 않게
   L.classList.add("on");
   panicT = setInterval(()=>{
     if(i >= total || !$("#s-home").classList.contains("active")){
-      stopPanic(); drawMascot(); return;
+      const done = $("#s-home").classList.contains("active");
+      stopPanic(); drawMascot();
+      if(done) sayBubble($("#mbubble").textContent);  // 돌아와서 다시 말한다
+      return;
     }
     const t = 2*Math.PI*(i % FR)/FR;             // 꼭대기에서 시계 방향
     const a = t - Math.PI/2;
@@ -1096,12 +1134,16 @@ function runPanic(laps){
     ][k];
     const hop = air ? 4 : 0;
     R.innerHTML = rowsSVG(spec[0], spec[1]);
-    R.style.transform = "translate3d("+Math.round(mx-28)+"px,"+(Math.round(my-58)-hop)+"px,0)";
+    const ry2 = Math.round(my-58)-hop;
+    R.style.transform = "translate3d("+Math.round(mx-28)+"px,"+ry2+"px,0)";
+    const lit = (Math.floor(i/3) % 2) === 0;
+    if(lit !== panicLit){ panicLit = lit; B.innerHTML = sirenSVG(lit); }
+    B.style.transform = "translate3d("+Math.round(mx-13)+"px,"+(ry2-8)+"px,0)";
     const fy = Math.round(my + 22);
     S.style.transform = "translate3d("+Math.round(mx-17)+"px,"+fy+"px,0) scale("+(hop?".8":"1")+")";
     S.style.opacity = hop ? ".5" : ".8";
     i++;
-  }, 60);
+  }, 42);                                    // 한 바퀴 약 2초 — 다급하게
 }
 
 /* 빈 화면용 쥐돌이 — 글자만 있던 자리를 채운다.
@@ -2178,16 +2220,19 @@ function fmtMemoAt(at){
 function renderMemoTab(){
   const q = ($("#q").value||"").trim().toLowerCase();
   const box = $("#memoBody");
-  const list = data.memos.slice().sort((a,b)=>String(b.at||"").localeCompare(String(a.at||"")));
+  const list = data.memos.slice().sort((a,b)=>{
+    if(!!a.pin !== !!b.pin) return a.pin ? -1 : 1;          // 고정 먼저
+    return String(b.at||"").localeCompare(String(a.at||""));  // 그 안에서는 최신순
+  });
   const hit = q ? list.filter(m=>m.text.toLowerCase().indexOf(q) >= 0) : list;
   if(!list.length && !q){
     box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}아직 메모가 없어요.<br>인수인계, 공지, 떠오른 아이디어 —<br>오른쪽 위 <b>+</b> 로 적어두세요.</div>`;
     return;
   }
   box.innerHTML = hit.length
-    ? hit.map(m=>`<button class="memorow" data-id="${esc(m.id)}">
+    ? hit.map(m=>`<button class="memorow${m.pin?" pinned":""}" data-id="${esc(m.id)}">
         <span class="mtxt">${esc(m.text)}</span>
-        <span class="mat">${esc(fmtMemoAt(m.at))}</span>
+        <span class="mat">${m.pin?`<b class="mpin">📌 고정됨</b> · `:""}${esc(fmtMemoAt(m.at))}</span>
       </button>`).join("")
     : noResultHTML(q, "메모가");
   box.querySelectorAll(".memorow").forEach(b=>b.addEventListener("click", ()=>
@@ -2195,20 +2240,28 @@ function renderMemoTab(){
 }
 function openMemoSheet(idx){
   const isNew = (idx === null || idx < 0);
-  const m = isNew ? {text:""} : data.memos[idx];
+  const m = isNew ? {text:"", pin:false} : data.memos[idx];
   $("#sheetBody").innerHTML = `
     <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">${isNew?"새 메모":"메모"}</h2>
     <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px">${isNew?"이 아이폰 안에만 저장됩니다":esc(fmtMemoAt(m.at))}</div>
     <div class="fld"><textarea id="mm-text" rows="7" placeholder="인수인계, 공지, 아이디어…" style="min-height:150px">${esc(m.text)}</textarea></div>
+    <div class="fld"><div class="pickers">
+      <button type="button" class="pick${m.pin?" on":""}" id="mm-pin"><span class="box">✓</span>📌 맨 위에 고정</button>
+    </div></div>
     <button class="cta" id="mmSave">저장</button>
     ${isNew?"":`<button class="cta danger" id="mmDel">삭제</button>`}`;
+  let pin = !!m.pin;
+  $("#mm-pin").addEventListener("click", ()=>{
+    pin = !pin;
+    $("#mm-pin").classList.toggle("on", pin);
+  });
   $("#mask").classList.add("on"); $("#sheet").classList.add("on");
   if(isNew) setTimeout(()=>$("#mm-text").focus(), 250);
   $("#mmSave").addEventListener("click", ()=>{
     const text = $("#mm-text").value.trim();
     if(!text){ toast("내용을 입력해 주세요"); return; }
-    if(isNew) data.memos.push({id:uid(), text:text, at:new Date().toISOString()});
-    else data.memos[idx].text = text;                 // 고칠 때 작성 시각은 그대로 둔다
+    if(isNew) data.memos.push({id:uid(), text:text, at:new Date().toISOString(), pin:pin});
+    else { data.memos[idx].text = text; data.memos[idx].pin = pin; }   // 작성 시각은 그대로
     persist(); closeSheet(); renderList();
     toast(isNew ? "메모했어요" : "수정했어요");
   });
@@ -3112,7 +3165,7 @@ function applyBackup(text){
       dur:String(s.dur||""), note:String(s.note||"")
     })) : [];
     const keepMemos = Array.isArray(d.memos) ? d.memos.map(m=>({
-      id:String(m.id||uid()), text:String(m.text||""), at:String(m.at||"")
+      id:String(m.id||uid()), text:String(m.text||""), at:String(m.at||""), pin:!!m.pin
     })).filter(m=>m.text) : [];
     data = {v:1, mode:keepMode, theme:keepTheme, enCase:keepEn, pin:data.pin, visit:(d.visit || data.visit), cats:keepCats, shelf:keepShelf, memos:keepMemos,
       drinks:d.drinks.map(x=>({
