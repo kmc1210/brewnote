@@ -668,7 +668,7 @@
           <button class="addrow" id="addStep">+ 순서 추가</button></div>
         <div class="fld"><label>기억 포인트</label><textarea id="e-tip" placeholder="헷갈리는 지점, 실수하기 쉬운 부분을 적어두세요"></textarea></div>
         <div class="fld"><label>부재료 레시피</label>
-          <p style="margin:-2px 0 10px;font-size:12.5px;color:var(--muted);line-height:1.5">자몽청처럼 따로 만들어 두는 재료를 여기에 적어두세요. 학습 카드에는 나오지 않고 레시피를 볼 때만 함께 보입니다.</p>
+          <p style="margin:-2px 0 10px;font-size:12.5px;color:var(--muted);line-height:1.5">자몽청처럼 따로 만들어 두는 재료예요. 한 번 등록해 두면 다른 메뉴에서도 골라 쓸 수 있고, 고치면 쓰는 메뉴에 함께 반영됩니다. 학습 카드에는 나오지 않아요.</p>
           <div id="e-subs"></div>
           <button class="addrow" id="addSub">+ 부재료 추가</button></div>
         <button class="cta" id="saveBtn">저장하기</button>
@@ -890,7 +890,7 @@ const Store = (()=>{
 /* ---------- 샘플 데이터 (설정에서 지울 수 있음) ---------- */
 function seed(){
   const S = (cat,name,en,temp,cup,ing,steps,tip)=>
-    ({id:uid(), cat, name, en, temp, cups: cup?[cup]:[], ing, steps, tip, subs:[]});
+    ({id:uid(), cat, name, en, temp, cups: cup?[cup]:[], ing, steps, tip, subRefs:[]});
   return [
     S("coffee","에스프레소","Espresso","HOT","데미타세 60ml",
       [["원두 도징","18 g"],["추출량","36 g"],["추출 시간","25~30초"]],
@@ -980,19 +980,78 @@ data.shelf.forEach(s=>{ if(!s.id) s.id = uid(); });
 if(!Array.isArray(data.memos)) data.memos = [];     // 예전 백업에는 없는 항목 — 빈 목록으로 시작
 data.memos.forEach(m=>{ if(!m.id) m.id = uid(); if(typeof m.text !== "string") m.text = ""; m.pin = !!m.pin; });
 data.drinks.forEach(d=>{
-  if(!Array.isArray(d.subs)) d.subs = [];
-  d.subs.forEach(s=>{ if(typeof s.place !== "string") s.place = ""; if(typeof s.dur !== "string") s.dur = ""; });
   if(!Array.isArray(d.cups)) d.cups = d.cup ? [String(d.cup)] : [];
 });
 
+/* ---------- 부재료 공용 목록 ----------
+   예전에는 부재료를 레시피 안에 하나씩 박아 넣었다. 같은 자몽청을 쓰는 메뉴가 다섯 개면
+   다섯 번 입력해야 했다. 이제는 부재료를 한 곳(data.subs)에 두고 레시피가 그것을
+   가리킨다(d.subRefs). 예전 데이터는 앱을 처음 열 때 한 번 옮겨진다. */
+function subSig(s){
+  return JSON.stringify([(s.ing||[]), (s.steps||[]), s.tip||"", s.place||"", s.dur||""]);
+}
+function uniqueSubName(list, nm){
+  const taken = new Set(list.map(x=>String(x.name||"").trim().toLowerCase()));
+  if(!taken.has(nm.toLowerCase())) return nm;
+  let n = 2;
+  while(taken.has((nm+" "+n).toLowerCase())) n++;
+  return nm+" "+n;
+}
+/* 이름과 내용이 같으면 하나로 합치고, 이름은 같은데 배합이 다르면 "자몽청 2"처럼 따로 남긴다 */
+function liftSubs(root){
+  if(!Array.isArray(root.subs)) root.subs = [];
+  const byKey = new Map();
+  root.subs.forEach(s=>byKey.set(String(s.name||"").trim().toLowerCase()+"|"+subSig(s), s.id));
+  let moved = 0, split = 0;
+  (root.drinks||[]).forEach(d=>{
+    const refs = Array.isArray(d.subRefs) ? d.subRefs.slice() : [];
+    const embedded = Array.isArray(d.subs) ? d.subs : [];
+    embedded.forEach(s=>{
+      const nm = String(s.name||"").trim();
+      if(!nm) return;
+      const key = nm.toLowerCase()+"|"+subSig(s);
+      let id = byKey.get(key);
+      if(!id){
+        const finalName = uniqueSubName(root.subs, nm);
+        if(finalName !== nm) split++;
+        id = (s.id && !root.subs.some(x=>x.id===s.id)) ? s.id : uid();
+        root.subs.push({id:id, name:finalName,
+          ing:(s.ing||[]).map(p=>[String(p[0]||""),String(p[1]||"")]),
+          steps:(s.steps||[]).map(String), tip:String(s.tip||""),
+          place:String(s.place||""), dur:String(s.dur||"")});
+        byKey.set(key, id);
+      }
+      if(refs.indexOf(id) < 0) refs.push(id);
+    });
+    if(embedded.length) moved += embedded.length;
+    d.subRefs = refs;
+    delete d.subs;
+  });
+  return {moved:moved, split:split};
+}
+const _lift = liftSubs(data);
+data.subs.forEach(s=>{
+  if(!s.id) s.id = uid();
+  if(typeof s.name !== "string") s.name = String(s.name||"");
+  if(!Array.isArray(s.ing)) s.ing = [];
+  if(!Array.isArray(s.steps)) s.steps = [];
+  if(typeof s.tip !== "string") s.tip = "";
+  if(typeof s.place !== "string") s.place = "";
+  if(typeof s.dur !== "string") s.dur = "";
+});
+const subById = id => data.subs.find(x=>x.id===id) || null;
+const subsOf  = d => (d.subRefs||[]).map(subById).filter(Boolean);
+const usesOf  = id => data.drinks.filter(d=>(d.subRefs||[]).indexOf(id)>=0);
+
 const state = {filter:"all", deck:[], idx:0, flipped:false, stat:{ok:0,again:0,total:0},
                editingId:null, selMode:false, sel:new Set(), revealed:new Set(), discOpen:false,
-               subs:[], subIdx:null, parentForm:null, cupSel:[], cupCustom:false,
+               editSubRefs:[], subEditId:null, subFrom:"edit", parentForm:null, cupSel:[], cupCustom:false,
                listTab:"recipe", subPlace:"", shelfOpen:new Set()};
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const persist = ()=>{ Store.save(data); };
+if(_lift.moved) persist();          // 부재료를 공용 목록으로 옮긴 결과를 바로 굳힌다
 const drinksOf = c => c==="all" ? data.drinks : data.drinks.filter(d=>d.cat===c);
 const has = (arr,id) => arr.indexOf(id)>=0;
 const add = (arr,id) => { if(!has(arr,id)) arr.push(id); };
@@ -1523,11 +1582,9 @@ function renderListSub(){
     return;
   }
   if(state.listTab === "sub"){
-    const idx = subIndex();
-    const used = new Set();
-    idx.forEach(e=>e.uses.forEach(u=>used.add(u.id)));
-    el.textContent = "부재료 " + idx.length + "개"
-      + (used.size ? " · 메뉴 " + used.size + "곳에 사용" : "");
+    const used = data.drinks.filter(d=>(d.subRefs||[]).length).length;
+    el.textContent = "부재료 " + data.subs.length + "개"
+      + (used ? " · 메뉴 " + used + "곳에 사용" : "");
     return;
   }
   if(state.listTab === "memo"){
@@ -1961,7 +2018,7 @@ function renderList(){
   $("#q").placeholder = shelfMode ? "항목 · 기한으로 검색"
     : (subMode ? "부재료 이름 · 쓰이는 메뉴로 검색"
     : (memoMode ? "메모 내용으로 검색" : "메뉴 이름 · 재료로 검색"));
-  $("#newBtn").style.display = subMode ? "none" : "flex";   // 부재료는 보기 전용
+  $("#newBtn").style.display = "flex";
   if(shelfMode || subMode || memoMode){
     if(shelfMode) renderShelf(); else if(memoMode) renderMemoTab(); else renderSubTab();
     $("#listBar").style.display = "flex";
@@ -2169,73 +2226,118 @@ $("#s-list").addEventListener("click", e=>{
   el.addEventListener("touchcancel",segEnd,   {passive:true});
 })();
 
-/* ---------- 부재료 (레시피 안에 등록된 것을 모아서 보여주기만 한다) ---------- */
-/* 같은 이름은 한 줄로 합치고, 내용이 다르면 상세에서 각각 보여준다 */
-function subSig(s){
-  return JSON.stringify([(s.ing||[]), (s.steps||[]), s.tip||"", s.place||"", s.dur||""]);
+/* ---------- 부재료 (한 번 등록해서 여러 메뉴가 나눠 쓴다) ---------- */
+function subsSorted(){
+  return data.subs.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),"ko"));
 }
-function subIndex(){
-  const map = new Map();
-  data.drinks.forEach(d=>(d.subs||[]).forEach(s=>{
-    const name = (s.name||"").trim();
-    if(!name) return;
-    const key = name.toLowerCase();
-    if(!map.has(key)) map.set(key, {key:key, name:name, uses:[], variants:[]});
-    const e = map.get(key);
-    if(!e.uses.some(u=>u.id===d.id)) e.uses.push({id:d.id, name:d.name});
-    const sig = subSig(s);
-    const v = e.variants.find(x=>x.sig===sig);
-    if(v){ if(!v.from.some(f=>f.id===d.id)) v.from.push({id:d.id, name:d.name}); }
-    else e.variants.push({sig:sig, sub:s, from:[{id:d.id, name:d.name}]});
-  }));
-  return [...map.values()].sort((a,b)=>a.name.localeCompare(b.name,"ko"));
-}
-function subMatch(e, q){
-  return textHit([e.name, e.uses.map(u=>u.name).join(" "),
-    e.variants.map(v=>(v.sub.ing||[]).map(i=>i[0]+" "+i[1]).join(" ")).join(" ")].join(" "), q);
+function subMatch(s, q){
+  return textHit([s.name, usesOf(s.id).map(d=>d.name).join(" "),
+    (s.ing||[]).map(i=>i[0]+" "+i[1]).join(" ")].join(" "), q);
 }
 function renderSubTab(){
   const q = ($("#q").value||"").trim().toLowerCase();
-  const all = subIndex();
-  const hit = all.filter(e=>subMatch(e,q));
+  const hit = subsSorted().filter(s=>subMatch(s,q));
   const box = $("#subBody");
   box.innerHTML = hit.length
-    ? hit.map(e=>`<button class="row" data-key="${esc(e.key)}">
-        <span class="subb">부재료</span>
-        <span class="meta"><b>${esc(e.name)}</b><span>${e.uses.map(u=>esc(u.name)).join(" · ")}</span></span>
-        ${e.variants.length > 1 ? `<span class="pill">배합 ${e.variants.length}가지</span>`
-          : (e.uses.length > 1 ? `<span class="pill done">${e.uses.length}곳</span>` : "")}
-      </button>`).join("")
+    ? hit.map(s=>{
+        const uses = usesOf(s.id);
+        return `<button class="row" data-id="${esc(s.id)}">
+          <span class="subb">부재료</span>
+          <span class="meta"><b>${esc(s.name)}</b><span>${uses.length
+            ? uses.map(d=>esc(d.name)).join(" · ")
+            : "아직 연결된 메뉴가 없어요"}</span></span>
+          ${uses.length > 1 ? `<span class="pill done">${uses.length}곳</span>` : ""}
+        </button>`;
+      }).join("")
     : (q ? noResultHTML(q, "부재료가")
-         : `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 부재료가 없어요.<br>레시피를 수정할 때 아래쪽 <b>부재료 레시피</b>에서 추가하면<br>여기에 모여서 보입니다.</div>`);
+         : `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 부재료가 없어요.<br>오른쪽 위 <b>+</b> 로 자몽청처럼 따로 만들어 두는 재료를<br>한 번만 등록해 두고 여러 메뉴에 연결할 수 있어요.</div>`);
   box.querySelectorAll(".row").forEach(b=>
-    b.addEventListener("click", ()=>openSubSheet(b.dataset.key)));
+    b.addEventListener("click", ()=>openSubSheet(b.dataset.id)));
 }
-function openSubSheet(key){
-  const e = subIndex().find(x=>x.key===key); if(!e) return;
-  const one = e.variants.length === 1;
-  const body = e.variants.map(v=>{
-    const s = v.sub;
-    const tag = [s.place, s.dur].filter(Boolean).join(" ");
-    return `${one ? "" : `<div class="subvar-h">${v.from.map(f=>esc(f.name)).join(" · ")} 기준</div>`}
-      ${tag ? `<div class="blk"><div class="lb">보관</div><div class="ing"><b>${esc(tag)}</b><span></span></div></div>` : ""}
-      ${(s.ing||[]).length ? `<div class="blk"><div class="lb">재료 / 용량</div>
-        ${(s.ing||[]).map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("")}</div>` : ""}
-      ${(s.steps||[]).length ? `<div class="blk"><div class="lb">만드는 순서</div>
-        <ol class="steps">${s.steps.map(t=>`<li>${esc(t)}</li>`).join("")}</ol></div>` : ""}
-      ${s.tip ? `<div class="blk"><div class="lb">기억 포인트</div><div class="tipbox">${esc(s.tip)}</div></div>` : ""}`;
-  }).join("");
-
+function subDetailHTML(s){
+  const tag = [s.place, s.dur].filter(Boolean).join(" ");
+  return `${tag ? `<div class="blk"><div class="lb">보관</div><div class="ing"><b>${esc(tag)}</b><span></span></div></div>` : ""}
+    ${(s.ing||[]).length ? `<div class="blk"><div class="lb">재료 / 용량</div>
+      ${(s.ing||[]).map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("")}</div>` : ""}
+    ${(s.steps||[]).length ? `<div class="blk"><div class="lb">만드는 순서</div>
+      <ol class="steps">${s.steps.map(t=>`<li>${esc(t)}</li>`).join("")}</ol></div>` : ""}
+    ${s.tip ? `<div class="blk"><div class="lb">기억 포인트</div><div class="tipbox">${esc(s.tip)}</div></div>` : ""}`;
+}
+function openSubSheet(id){
+  const s = subById(id); if(!s) return;
+  const uses = usesOf(s.id);
+  const body = subDetailHTML(s);
   $("#sheetBody").innerHTML = `
-    <h2 style="margin:0 0 2px;font-size:23px;font-weight:800;letter-spacing:-.5px">${esc(e.name)}</h2>
+    <h2 style="margin:0 0 2px;font-size:23px;font-weight:800;letter-spacing:-.5px">${esc(s.name)}</h2>
     <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">부재료 · 학습 카드에는 나오지 않아요</div>
     ${body || `<div class="empty" style="margin-bottom:4px">내용이 아직 비어 있어요.</div>`}
     <div class="blk" style="margin-bottom:0"><div class="lb">쓰이는 메뉴</div>
-      <div class="uses">${e.uses.map(u=>`<button data-go-id="${esc(u.id)}">${esc(u.name)}</button>`).join("")}</div>
-    </div>`;
+      ${uses.length
+        ? `<div class="uses">${uses.map(d=>`<button data-go-id="${esc(d.id)}">${esc(d.name)}</button>`).join("")}</div>`
+        : `<p class="cap" style="margin:8px 0 0">아직 연결된 메뉴가 없어요. 아래에서 골라 주세요.</p>`}
+    </div>
+    <button class="cta ghost" id="subLink" style="margin-top:22px">쓰이는 메뉴 고르기</button>
+    <button class="cta" id="subEdit">수정하기</button>
+    <button class="cta danger" id="subKill">삭제하기</button>`;
   $("#mask").classList.add("on"); $("#sheet").classList.add("on");
   $("#sheetBody").querySelectorAll("[data-go-id]").forEach(b=>
-    b.addEventListener("click", ()=>{ const id=b.dataset.goId; closeSheet(); setTimeout(()=>openSheet(id), 220); }));
+    b.addEventListener("click", ()=>{ const gid=b.dataset.goId; closeSheet(); setTimeout(()=>openSheet(gid), 220); }));
+  $("#subLink").addEventListener("click", ()=>openSubLinkSheet(s.id));
+  $("#subEdit").addEventListener("click", ()=>{ closeSheet(); openSubEditor(s.id, "list"); });
+  $("#subKill").addEventListener("click", ()=>{
+    closeSheet();
+    const n = usesOf(s.id).length;
+    confirmBox("부재료 삭제",
+      `“${s.name}”를 삭제할까요?` + (n ? ` 연결된 메뉴 ${n}곳에서도 함께 빠집니다.` : "") + " 되돌릴 수 없어요.",
+      "삭제", ()=>{ deleteSub(s.id); toast("삭제했어요"); renderList(); });
+  });
+}
+function deleteSub(id){
+  data.subs = data.subs.filter(x=>x.id!==id);
+  data.drinks.forEach(d=>{ d.subRefs = (d.subRefs||[]).filter(x=>x!==id); });
+  persist();
+}
+/* 부재료 쪽에서 메뉴를 고른다 — 같은 부재료를 쓰는 메뉴가 여럿일 때 한 번에 이어 준다 */
+function openSubLinkSheet(id){
+  const s = subById(id); if(!s) return;
+  const picked = new Set(usesOf(s.id).map(d=>d.id));
+  const draw = ()=>{
+    const q = (($("#linkQ")||{}).value||"").trim();
+    const list = q ? data.drinks.filter(d=>textHit([d.name,d.en||""].join(" "), q.toLowerCase())) : data.drinks;
+    $("#linkList").innerHTML = list.length
+      ? list.map(d=>`<button type="button" class="pick linkrow${picked.has(d.id)?" on":""}" data-id="${esc(d.id)}">
+           <span class="box">✓</span>${esc(d.name)}</button>`).join("")
+      : `<p class="cap" style="margin:6px 0 0">“${esc(q)}”에 맞는 메뉴가 없어요.</p>`;
+    $("#linkList").querySelectorAll(".linkrow").forEach(b=>b.addEventListener("click", ()=>{
+      const did = b.dataset.id;
+      if(picked.has(did)) picked.delete(did); else picked.add(did);
+      draw();
+    }));
+    $("#linkCnt").textContent = picked.size ? picked.size + "개 선택" : "선택 안 함";
+  };
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 2px;font-size:21px;font-weight:800;letter-spacing:-.4px">쓰이는 메뉴</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:16px">“${esc(s.name)}”를 쓰는 메뉴를 모두 골라 주세요 · <span id="linkCnt"></span></div>
+    ${data.drinks.length > 8 ? `<div class="search" style="margin-bottom:14px"><span style="color:var(--muted);font-size:15px">🔍</span>
+      <input id="linkQ" type="search" placeholder="메뉴 이름으로 좁히기" autocomplete="off"></div>` : ""}
+    <div class="pickers" id="linkList" style="margin-bottom:4px"></div>
+    <button class="cta" id="linkSave" style="margin-top:20px">저장하기</button>
+    <button class="cta ghost" id="linkBack">취소</button>`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  draw();
+  if($("#linkQ")) $("#linkQ").addEventListener("input", draw);
+  $("#linkBack").addEventListener("click", ()=>openSubSheet(s.id));
+  $("#linkSave").addEventListener("click", ()=>{
+    data.drinks.forEach(d=>{
+      const refs = (d.subRefs||[]).filter(x=>x!==s.id);
+      if(picked.has(d.id)) refs.push(s.id);
+      d.subRefs = refs;
+    });
+    persist();
+    toast(picked.size ? `메뉴 ${picked.size}곳에 연결했어요` : "연결을 모두 해제했어요");
+    renderList();
+    openSubSheet(s.id);
+  });
 }
 
 /* ---------- 내품기 ---------- */
@@ -2359,6 +2461,7 @@ function openShelfSheet(idx){
 $("#newBtn").addEventListener("click", ()=>{
   if(state.listTab === "shelf"){ openShelfSheet(null); return; }
   if(state.listTab === "memo"){ openMemoSheet(null); return; }
+  if(state.listTab === "sub"){ openSubEditor(null, "list"); return; }
   $("#sheetBody").innerHTML = `
     <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">레시피 추가</h2>
     <div style="font-size:12.5px;color:var(--muted);margin-bottom:20px">어떻게 넣을까요?</div>
@@ -2634,7 +2737,7 @@ $("#parseBtn").addEventListener("click", ()=>{
 
 /* 레시피에 딸린 부재료를 펼쳐 보여준다 (학습 카드에는 안 나온다) */
 function subsHTML(d){
-  const subs = d.subs || [];
+  const subs = subsOf(d);
   if(!subs.length) return "";
   return `<div class="blk subsect" style="margin-bottom:0">
     <div class="lb">부재료 레시피</div>
@@ -2775,10 +2878,7 @@ function openEditor(id, draft){
   const sts = d && d.steps.length ? d.steps : ["",""];
   sts.forEach(s=>sb.appendChild(stepRow(s)));
   renumber(); refreshOrd(ib); refreshOrd(sb);
-  state.subs = (d && Array.isArray(d.subs)) ? d.subs.map(s=>({
-    id:s.id||uid(), name:s.name||"", ing:(s.ing||[]).map(p=>[p[0],p[1]]),
-    steps:(s.steps||[]).slice(), tip:s.tip||"", place:s.place||"", dur:s.dur||""
-  })) : [];
+  state.editSubRefs = (d && Array.isArray(d.subRefs)) ? d.subRefs.filter(subById) : [];
   renderSubs();
   $("#delBtn").style.display = id ? "block" : "none";
   go("edit");
@@ -2807,25 +2907,69 @@ function writeEditorForm(f){
 }
 function renderSubs(){
   const box = $("#e-subs");
-  box.innerHTML = state.subs.length
-    ? state.subs.map((s,i)=>`<button type="button" class="subrow" data-i="${i}">
+  const subs = state.editSubRefs.map(subById).filter(Boolean);
+  box.innerHTML = subs.length
+    ? subs.map(s=>{
+        const others = usesOf(s.id).filter(d=>d.id !== state.editingId).length;
+        return `<button type="button" class="subrow" data-id="${esc(s.id)}">
          <b>${esc(s.name || "(이름 없음)")}</b>
-         <span>${(s.place||s.dur) ? esc([s.place,s.dur].filter(Boolean).join(" ")) : "재료 "+(s.ing||[]).filter(p=>p[0]||p[1]).length+"개"}</span>
+         <span>${others ? "다른 메뉴 "+others+"곳과 공유"
+           : ((s.place||s.dur) ? esc([s.place,s.dur].filter(Boolean).join(" ")) : "재료 "+(s.ing||[]).filter(p=>p[0]||p[1]).length+"개")}</span>
          <span style="color:var(--accent)">수정</span>
-       </button>`).join("")
+       </button>`;
+      }).join("")
     : `<div style="font-size:13px;color:var(--muted);padding:2px 0 8px">등록된 부재료가 없어요.</div>`;
   box.querySelectorAll(".subrow").forEach(btn=>{
-    btn.addEventListener("click", ()=>openSubEditor(+btn.dataset.i));
+    btn.addEventListener("click", ()=>openSubEditor(btn.dataset.id, "edit"));
   });
+}
+/* 부재료 추가 — 이미 만들어 둔 것이 있으면 새로 만들지 말고 고르게 한다 */
+function openSubPickSheet(){
+  const avail = subsSorted().filter(s=>state.editSubRefs.indexOf(s.id) < 0);
+  if(!avail.length){ openSubEditor(null, "edit"); return; }
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">부재료 추가</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:20px">이미 등록해 둔 부재료를 고르면 다시 입력하지 않아도 돼요</div>
+    <button class="row" id="subNew">
+      <span class="emo">✏️</span>
+      <span class="meta"><b>새로 만들기</b><span>재료와 순서를 새로 입력합니다</span></span>
+    </button>
+    <div class="lb" style="margin:20px 0 10px">등록된 부재료</div>
+    ${avail.map(s=>{
+      const n = usesOf(s.id).length;
+      return `<button class="row" data-pick="${esc(s.id)}">
+        <span class="subb">부재료</span>
+        <span class="meta"><b>${esc(s.name)}</b><span>${n ? n+"개 메뉴에서 사용 중" : "아직 연결된 메뉴 없음"}</span></span>
+      </button>`;
+    }).join("")}`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#subNew").addEventListener("click", ()=>{ closeSheet(); openSubEditor(null, "edit"); });
+  $("#sheetBody").querySelectorAll("[data-pick]").forEach(b=>b.addEventListener("click", ()=>{
+    const id = b.dataset.pick;
+    if(state.editSubRefs.indexOf(id) < 0) state.editSubRefs.push(id);
+    closeSheet(); renderSubs();
+    toast("담았어요. 레시피를 저장하면 연결됩니다");
+  }));
 }
 
 /* ---------- 부재료 편집 화면 ---------- */
-function openSubEditor(idx){
-  state.parentForm = readEditorForm();
-  state.subIdx = idx;
-  const s = (idx === null) ? null : state.subs[idx];
+function openSubEditor(subId, from){
+  state.subFrom = (from === "list") ? "list" : "edit";
+  state.parentForm = (state.subFrom === "edit") ? readEditorForm() : null;
+  state.subEditId = subId || null;
+  const s = subId ? subById(subId) : null;
   $("#subTitle").textContent = s ? "부재료 수정" : "부재료 추가";
-  $("#subParent").textContent = ($("#e-name").value.trim() || "레시피") + " 에 딸린 재료";
+  if(state.subFrom === "edit"){
+    const others = s ? usesOf(s.id).filter(d=>d.id !== state.editingId).map(d=>d.name) : [];
+    $("#subParent").textContent = others.length
+      ? "여기서 고치면 " + others.join(" · ") + " 에도 함께 반영돼요"
+      : ($("#e-name").value.trim() || "레시피") + " 에 넣을 재료";
+  } else {
+    const uses = s ? usesOf(s.id).map(d=>d.name) : [];
+    $("#subParent").textContent = s
+      ? (uses.length ? uses.join(" · ") + " 에 사용 중" : "아직 연결된 메뉴가 없어요")
+      : "저장한 뒤 쓰이는 메뉴를 연결할 수 있어요";
+  }
   $("#s-name").value = s ? s.name : "";
   $("#s-tip").value  = s ? (s.tip||"") : "";
   $("#s-dur").value  = s ? (s.dur||"") : "";
@@ -2838,7 +2982,11 @@ function openSubEditor(idx){
   const sts = (s && s.steps.length) ? s.steps : [""];
   sts.forEach(t=>sb.appendChild(subStepRow(t)));
   renumberSub(); refreshOrd(ib); refreshOrd(sb);
+  /* 레시피 안에서 열었을 땐 "빼기"(연결만 끊기), 부재료 탭에서 열었을 땐 진짜 삭제 */
   $("#subDel").style.display = s ? "block" : "none";
+  $("#subDel").textContent = (state.subFrom === "edit") ? "이 레시피에서 빼기" : "이 부재료 삭제";
+  $("#subDel").classList.toggle("ghost", state.subFrom === "edit");
+  $("#subDel").classList.toggle("danger", state.subFrom !== "edit");
   go("sub");
   $("#s-sub .scroll").scrollTop = 0;
 }
@@ -2864,20 +3012,36 @@ function subStepRow(text){
 function renumberSub(){
   document.querySelectorAll("#s-steps .stepnum").forEach((el,i)=>el.textContent=(i+1)+".");
 }
-function backToEditor(){
-  go("edit");
-  if(state.parentForm){ writeEditorForm(state.parentForm); state.parentForm = null; }
-  renderSubs();
+function leaveSubEditor(){
+  if(state.subFrom === "edit"){
+    go("edit");
+    if(state.parentForm){ writeEditorForm(state.parentForm); state.parentForm = null; }
+    renderSubs();
+  } else {
+    state.listTab = "sub";
+    go("list");
+  }
 }
-$("#addSub").addEventListener("click", ()=>openSubEditor(null));
+$("#addSub").addEventListener("click", openSubPickSheet);
 $("#addSubIng").addEventListener("click", ()=>{ const b=$("#s-ing"); b.appendChild(ingRow()); refreshOrd(b); });
 $("#addSubStep").addEventListener("click", ()=>{ const b=$("#s-steps"); b.appendChild(subStepRow()); renumberSub(); refreshOrd(b); });
-$("#subClose").addEventListener("click", backToEditor);
+$("#subClose").addEventListener("click", leaveSubEditor);
 $("#subSave").addEventListener("click", ()=>{
   const name = $("#s-name").value.trim();
   if(!name){ toast("부재료 이름을 입력해 주세요"); $("#s-name").focus(); return; }
+  const dup = data.subs.find(x=>x.id !== state.subEditId
+    && String(x.name||"").trim().toLowerCase() === name.toLowerCase());
+  if(dup){
+    confirmBox("같은 이름이 있어요",
+      `“${dup.name}”가 이미 등록돼 있어요. 배합이 다른 별개의 재료라면 그대로 저장하고, 같은 것이라면 취소한 뒤 기존 것을 연결해 주세요.`,
+      "그대로 저장", ()=>commitSub(name));
+    return;
+  }
+  commitSub(name);
+});
+function commitSub(name){
   const rec = {
-    id: (state.subIdx !== null && state.subs[state.subIdx]) ? state.subs[state.subIdx].id : uid(),
+    id: state.subEditId || uid(),
     name: name,
     ing: Array.from(document.querySelectorAll("#s-ing .dyn-row"))
           .map(r=>[r.querySelector(".nm").value.trim(), r.querySelector(".amt").value.trim()])
@@ -2887,18 +3051,36 @@ $("#subSave").addEventListener("click", ()=>{
     place: state.subPlace,
     dur: $("#s-dur").value.trim()
   };
-  if(state.subIdx !== null) state.subs[state.subIdx] = rec;
-  else state.subs.push(rec);
-  toast("부재료를 담았어요. 레시피를 저장하면 반영됩니다");
-  backToEditor();
-});
+  const i = data.subs.findIndex(x=>x.id===rec.id);
+  if(i >= 0) data.subs[i] = rec; else data.subs.push(rec);
+  persist();
+  if(state.subFrom === "edit"){
+    if(state.editSubRefs.indexOf(rec.id) < 0) state.editSubRefs.push(rec.id);
+    const others = usesOf(rec.id).filter(d=>d.id !== state.editingId).length;
+    toast(others ? `저장했어요. 다른 메뉴 ${others}곳에도 반영됩니다`
+                 : "부재료를 담았어요. 레시피를 저장하면 연결됩니다");
+  } else {
+    toast(Store.available ? "저장했어요" : "저장했지만 기기에 남지 않아요");
+  }
+  state.subEditId = rec.id;
+  leaveSubEditor();
+}
 $("#subDel").addEventListener("click", ()=>{
-  if(state.subIdx === null) return;
-  const nm = state.subs[state.subIdx].name;
-  confirmBox("부재료 삭제", `“${nm}”를 목록에서 뺄까요?`, "삭제", ()=>{
-    state.subs.splice(state.subIdx,1);
-    backToEditor();
-  });
+  const s = state.subEditId ? subById(state.subEditId) : null;
+  if(!s) return;
+  if(state.subFrom === "edit"){
+    confirmBox("부재료 빼기",
+      `“${s.name}”를 이 레시피에서만 뺄까요? 부재료 자체는 목록에 남고 다른 메뉴의 연결도 그대로예요.`,
+      "빼기", ()=>{
+        state.editSubRefs = state.editSubRefs.filter(x=>x!==s.id);
+        leaveSubEditor();
+      });
+    return;
+  }
+  const n = usesOf(s.id).length;
+  confirmBox("부재료 삭제",
+    `“${s.name}”를 삭제할까요?` + (n ? ` 연결된 메뉴 ${n}곳에서도 함께 빠집니다.` : "") + " 되돌릴 수 없어요.",
+    "삭제", ()=>{ deleteSub(s.id); toast("삭제했어요"); leaveSubEditor(); });
 });
 $("#addIng").addEventListener("click", ()=>{ const b=$("#e-ing"); b.appendChild(ingRow()); refreshOrd(b); });
 $("#addStep").addEventListener("click", ()=>{ const b=$("#e-steps"); b.appendChild(stepRow()); renumber(); refreshOrd(b); });
@@ -2917,7 +3099,7 @@ $("#saveBtn").addEventListener("click", ()=>{
     cat: $("#e-cat").value, name: name, en: $("#e-en").value.trim(),
     temp: $("#e-temp").value, cups: readCupField(),
     ing: ing, steps: steps, tip: $("#e-tip").value.trim(),
-    subs: state.subs.slice()
+    subRefs: state.editSubRefs.filter(subById)
   };
   if(state.editingId){
     const i = data.drinks.findIndex(x=>x.id===state.editingId);
@@ -3200,13 +3382,19 @@ function applyBackup(text){
       id:String(m.id||uid()), text:String(m.text||""), at:String(m.at||""), pin:!!m.pin
     })).filter(m=>m.text) : [];
     data = {v:1, mode:keepMode, theme:keepTheme, enCase:keepEn, pin:data.pin, visit:(d.visit || data.visit), cats:keepCats, shelf:keepShelf, memos:keepMemos,
+      /* 새 백업은 공용 부재료 목록을 갖고 있고, 예전 백업은 레시피 안에 부재료가 박혀 있다.
+         둘 다 받아서 아래 liftSubs로 하나의 모양으로 맞춘다 */
+      subs:Array.isArray(d.subs)?d.subs.map(cleanSub):[],
       drinks:d.drinks.map(x=>({
         id:x.id||uid(), cat:x.cat, name:String(x.name||""), en:String(x.en||""),
         temp:String(x.temp||""), cups:Array.isArray(x.cups)?x.cups.map(String):(x.cup?[String(x.cup)]:[]),
         ing:Array.isArray(x.ing)?x.ing.map(p=>[String(p[0]||""),String(p[1]||"")]):[],
         steps:Array.isArray(x.steps)?x.steps.map(String):[], tip:String(x.tip||""),
+        subRefs:Array.isArray(x.subRefs)?x.subRefs.map(String):[],
         subs:Array.isArray(x.subs)?x.subs.map(cleanSub):[]
       })), mastered:Array.isArray(d.mastered)?d.mastered:[], needReview:Array.isArray(d.needReview)?d.needReview:[]};
+    liftSubs(data);
+    data.drinks.forEach(x=>{ x.subRefs = (x.subRefs||[]).filter(id=>data.subs.some(s=>s.id===id)); });
     persist(); applyTheme(); $("#impBox").value=""; toast("복원했어요"); go("home");
   });
 }
@@ -3246,7 +3434,7 @@ $("#resetProg").addEventListener("click", ()=>{
 });
 $("#wipeAll").addEventListener("click", ()=>{
   confirmBox("전체 데이터 삭제", "레시피와 학습 기록을 모두 지웁니다. 백업 파일이 없으면 복구할 수 없어요.", "전부 삭제", ()=>{
-    data = {v:1, mode:data.mode, theme:data.theme, enCase:data.enCase, pin:data.pin, visit:data.visit, cats:data.cats, shelf:[], drinks:[], mastered:[], needReview:[]};
+    data = {v:1, mode:data.mode, theme:data.theme, enCase:data.enCase, pin:data.pin, visit:data.visit, cats:data.cats, shelf:[], memos:[], subs:[], drinks:[], mastered:[], needReview:[]};
     Store.clear(); persist(); renderSettings(); toast("모두 삭제했어요"); go("home");
   });
 });
@@ -3258,6 +3446,8 @@ tick(); setInterval(tick, 30000);
 applyTheme();
 initVisit();
 renderHome();
+/* 옮기는 김에 이름이 겹쳤던 부재료는 나눠 두었다. 조용히 바꾸면 놀라니까 한 번 알려준다 */
+if(_lift.split) setTimeout(()=>toast(`배합이 다른 같은 이름 부재료 ${_lift.split}개를 따로 나눴어요`), 900);
 if(data.pin) openLock("enter");
 </script>
 </body>
