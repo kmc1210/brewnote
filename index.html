@@ -147,6 +147,11 @@
   .appbar .add{width:38px;height:38px;border-radius:12px;background:var(--ink);color:var(--on-ink);font-size:22px;
     display:flex;align-items:center;justify-content:center;flex:0 0 38px;line-height:1;padding-bottom:3px;}
   .appbar .tools{display:flex;gap:8px;align-items:center;}
+  .appbar .archbtn{height:38px;padding:0 13px;border-radius:12px;background:var(--surface);border:1px solid var(--line);
+    color:var(--ink-2);font-size:14px;font-weight:700;display:flex;align-items:center;gap:5px;}
+  .appbar .archbtn b{font-variant-numeric:tabular-nums;}
+  .selactions .arch-b{background:var(--accent-soft);color:var(--accent-ink);}
+  .selactions .arch-b[disabled]{opacity:.45;}
   .appbar .gtext{flex:1;min-width:0;}
   .mwrap{position:relative;flex:0 0 52px;}
   .mascot{width:56px;height:80px;padding:0;display:block;margin-bottom:2px;}
@@ -614,6 +619,7 @@
       <div class="appbar" id="listBar">
         <div><h1>레시피</h1><p id="listSub">탭하면 상세 보기 · + 로 추가</p></div>
         <div class="tools">
+          <button class="archbtn" id="archBtn" style="display:none">📦 <b id="archCnt">0</b></button>
           <button class="add" id="newBtn">+</button>
         </div>
       </div>
@@ -642,7 +648,21 @@
         </div>
       </div>
       <div class="selactions" id="selActions">
+        <button class="arch-b" id="selArchive" disabled>보관</button>
         <button class="del-b" id="selDelete" disabled>삭제</button>
+      </div>
+    </section>
+
+    <!-- ARCHIVE -->
+    <section class="screen" id="s-arch">
+      <div class="appbar"><div><h1>보관함</h1><p id="archSub"></p></div>
+        <button class="icon-btn" id="archClose" style="margin-bottom:4px">✕</button></div>
+      <div class="scroll notabs">
+        <div class="searchrow" style="margin-bottom:14px">
+          <div class="search"><span style="color:var(--muted);font-size:15px">🔍</span>
+            <input id="archQ" type="search" placeholder="메뉴 이름 · 재료로 검색" autocomplete="off"></div>
+        </div>
+        <div id="archBody"></div>
       </div>
     </section>
 
@@ -981,6 +1001,7 @@ if(!Array.isArray(data.memos)) data.memos = [];     // 예전 백업에는 없�
 data.memos.forEach(m=>{ if(!m.id) m.id = uid(); if(typeof m.text !== "string") m.text = ""; m.pin = !!m.pin; });
 data.drinks.forEach(d=>{
   if(!Array.isArray(d.cups)) d.cups = d.cup ? [String(d.cup)] : [];
+  d.arch = !!d.arch;               // 보관한 레시피 — 학습과 목록에서 빠진다
 });
 
 /* ---------- 부재료 공용 목록 ----------
@@ -1052,7 +1073,10 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const persist = ()=>{ Store.save(data); };
 if(_lift.moved) persist();          // 부재료를 공용 목록으로 옮긴 결과를 바로 굳힌다
-const drinksOf = c => c==="all" ? data.drinks : data.drinks.filter(d=>d.cat===c);
+/* 보관한 레시피는 학습·목록·진도율 어디에도 끼지 않는다. 지운 게 아니라 잠시 빼둔 것 */
+const liveDrinks = () => data.drinks.filter(d=>!d.arch);
+const archDrinks = () => data.drinks.filter(d=>d.arch);
+const drinksOf = c => c==="all" ? liveDrinks() : liveDrinks().filter(d=>d.cat===c);
 const has = (arr,id) => arr.indexOf(id)>=0;
 const add = (arr,id) => { if(!has(arr,id)) arr.push(id); };
 const rm  = (arr,id) => { const i=arr.indexOf(id); if(i>=0) arr.splice(i,1); };
@@ -1392,9 +1416,10 @@ const CHEERS = [
    폐기 같은 건 등록해두면 매일 걸리기 때문에, 전부 우선순위로 두면
    말풍선이 1년 내내 같은 문장만 반복하게 된다. 오전에만 급한 말로 올린다. */
 function situationCheer(now, streak, v){
-  const total = data.drinks.length;
-  const done  = data.mastered.filter(id=>data.drinks.some(d=>d.id===id)).length;
-  const rev   = data.drinks.filter(d=>has(data.needReview, d.id)).length;
+  const live  = liveDrinks();
+  const total = live.length;
+  const done  = live.filter(d=>has(data.mastered,d.id)).length;
+  const rev   = live.filter(d=>has(data.needReview, d.id)).length;
   const hour  = now.getHours();
 
   let kill = 0;
@@ -1506,6 +1531,7 @@ function go(name){
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.dataset.go===name));
   if(name==="home") renderHome();
   if(name==="list") renderList();
+  if(name==="arch") renderArch();
   if(name==="set") renderSettings();
 }
 document.querySelectorAll(".tab").forEach(t=>{
@@ -1526,14 +1552,18 @@ function renderHome(){
   $("#deckCount").textContent = pool.length + "개 메뉴";
   $("#startBtn").disabled = pool.length===0;
 
-  const total = data.drinks.length, done = data.mastered.filter(id=>data.drinks.some(d=>d.id===id)).length;
+  const live = liveDrinks();
+  const total = live.length, done = live.filter(d=>has(data.mastered,d.id)).length;
   const pct = total ? Math.round(done/total*100) : 0;
   const C = 2*Math.PI*37;
   $("#ringFill").style.strokeDashoffset = C - C*pct/100;
   $("#ringPct").textContent = pct + "%";
-  $("#heroTitle").textContent = total===0 ? "레시피를 추가해 주세요"
+  const nArch = data.drinks.length - total;
+  $("#heroTitle").textContent = total===0 ? (nArch ? "모두 보관해 두셨어요" : "레시피를 추가해 주세요")
     : (done===0 ? "아직 외운 메뉴가 없어요" : `${total}개 중 ${done}개를 외웠어요`);
-  $("#heroSub").textContent = total===0 ? "레시피 탭의 + 버튼으로 우리 매장 레시피를 넣어보세요."
+  $("#heroSub").textContent = total===0 ? (nArch
+      ? "레시피 탭의 보관함에서 되돌리면 다시 학습할 수 있어요."
+      : "레시피 탭의 + 버튼으로 우리 매장 레시피를 넣어보세요.")
     : (done===0 ? "앞면엔 메뉴 이름, 뒷면엔 재료와 용량이 있어요."
     : (done===total ? "전체 메뉴를 마스터했어요. 가끔 복습해서 감을 유지하세요." : "남은 메뉴도 이어서 학습해볼까요?"));
 
@@ -1548,7 +1578,7 @@ function renderHome(){
   renderToday();
   renderBackupBanner();
 
-  const rev = data.drinks.filter(d=>has(data.needReview,d.id));
+  const rev = liveDrinks().filter(d=>has(data.needReview,d.id));
   $("#reviewCount").textContent = rev.length ? rev.length+"개" : "";
   $("#revStudy").style.display = rev.length ? "inline" : "none";
   $("#reviewList").innerHTML = rev.length ? rev.map(d=>rowHTML(d,"다시")).join("")
@@ -1591,8 +1621,10 @@ function renderListSub(){
     el.textContent = "메모 " + data.memos.length + "개";
     return;
   }
-  const done = data.drinks.filter(d=>has(data.mastered,d.id)).length;
-  el.textContent = "레시피 " + data.drinks.length + "개 · 외운 것 " + done + "개";
+  const live = liveDrinks();
+  const done = live.filter(d=>has(data.mastered,d.id)).length;
+  /* 보관 개수는 앱바 오른쪽 📦 버튼이 이미 말해준다. 여기서 또 쓰면 줄이 넘어간다 */
+  el.textContent = "레시피 " + live.length + "개 · 외운 것 " + done + "개";
 }
 function rowHTML(d, pill, selectable){
   const on = selectable && state.sel.has(d.id);
@@ -1602,6 +1634,48 @@ function rowHTML(d, pill, selectable){
     ${selectable ? "" : (pill?`<span class="pill">${esc(pill)}</span>`:(has(data.mastered,d.id)?`<span class="pill done">완료</span>`:""))}
   </button>`;
 }
+/* ---------- 보관함 ----------
+   외울 필요가 없어진 레시피를 지우지 않고 빼두는 곳. 내용은 그대로 남고
+   학습 덱·레시피 목록·진도율에서만 빠진다. 언제든 되돌릴 수 있다. */
+function setArch(ids, on){
+  const list = Array.isArray(ids) ? ids : [ids];
+  list.forEach(id=>{
+    const d = data.drinks.find(x=>x.id===id);
+    if(d) d.arch = !!on;
+  });
+  persist();
+}
+function renderArchBtn(){
+  const n = archDrinks().length;
+  $("#archBtn").style.display = (n && state.listTab === "recipe" && !state.selMode) ? "flex" : "none";
+  $("#archCnt").textContent = n;
+}
+function renderArch(){
+  const q = ($("#archQ").value||"").trim().toLowerCase();
+  const all = archDrinks();
+  const hit = all.filter(d=>textHit(d.name+" "+(d.en||"")+" "+d.ing.map(i=>i[0]).join(" "), q));
+  $("#archSub").textContent = all.length
+    ? all.length + "개 · 학습과 레시피 목록에서 빠져 있어요"
+    : "비어 있어요";
+  $("#archBody").innerHTML = all.length
+    ? (hit.length
+        ? hit.map(d=>rowHTML(d, "보관")).join("")
+        : noResultHTML(q, "레시피가"))
+    : `<div class="empty" style="padding:26px 18px 22px">
+        ${emptyMouse(2)}
+        <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">보관함이 비어 있어요</b>
+        더 이상 외울 필요 없는 메뉴는 삭제하지 말고<br>레시피 상세에서 <b>보관하기</b>를 눌러 여기로 옮겨두세요.<br>
+        내용은 그대로 남고 학습에만 안 나옵니다.
+      </div>`;
+  bindRows("#archBody");
+  const clr = $("#archBody").querySelector("[data-clearq]");
+  if(clr) clr.addEventListener("click", ()=>{ $("#archQ").value = ""; renderArch(); });
+}
+function openArch(){ $("#archQ").value = ""; go("arch"); $("#s-arch .scroll").scrollTop = 0; }
+$("#archBtn").addEventListener("click", openArch);
+$("#archClose").addEventListener("click", ()=>go("list"));
+$("#archQ").addEventListener("input", renderArch);
+
 function bindRows(sel, selectable){
   document.querySelectorAll(sel+" .row").forEach(r=>r.addEventListener("click",()=>{
     if(selectable && state.selMode){ toggleSel(r.dataset.id); return; }
@@ -1821,7 +1895,7 @@ function stopEat(){ if(eatT){ clearInterval(eatT); eatT = null; } }
 
 $("#againBtn").addEventListener("click", ()=>{      // 직전과 같은 범위로 다시
   if(state.deckIds){
-    const pool = data.drinks.filter(d=>state.deckIds.indexOf(d.id) >= 0);
+    const pool = liveDrinks().filter(d=>state.deckIds.indexOf(d.id) >= 0);
     if(pool.length){ startSession(pool); return; }
   }
   startSession();
@@ -1849,7 +1923,7 @@ function textHit(hay, q){
 }
 function visibleDrinks(){
   const q = ($("#q").value||"").trim().toLowerCase();
-  return data.drinks.filter(d=>textHit(d.name+" "+(d.en||"")+" "+d.ing.map(i=>i[0]).join(" "), q));
+  return liveDrinks().filter(d=>textHit(d.name+" "+(d.en||"")+" "+d.ing.map(i=>i[0]).join(" "), q));
 }
 /* 기한(일) 별로 묶어서 개봉일→폐기일 조합을 만든다. 개봉일 포함 N일 → 폐기일 = 개봉일 + (N-1) */
 function tagGroups(){
@@ -1873,7 +1947,7 @@ function tagRows(n, today){
 }
 /* 백업을 권할 때인지 — 앱이 먼저 말을 걸어야 데이터를 안 잃는다 */
 function backupDue(){
-  const n = data.drinks.length;
+  const n = liveDrinks().length;
   if(n < 8) return null;                                  // 몇 개 없을 땐 성가시기만 하다
   const today = ymd(new Date());
   const snz = data.backupSnooze;
@@ -1887,7 +1961,7 @@ function backupDue(){
   return null;
 }
 function markBackedUp(){
-  data.backup = {at: ymd(new Date()), count: data.drinks.length};
+  data.backup = {at: ymd(new Date()), count: liveDrinks().length};
   delete data.backupSnooze;
   persist();
   renderBackupBanner();
@@ -2019,6 +2093,7 @@ function renderList(){
     : (subMode ? "부재료 이름 · 쓰이는 메뉴로 검색"
     : (memoMode ? "메모 내용으로 검색" : "메뉴 이름 · 재료로 검색"));
   $("#newBtn").style.display = "flex";
+  renderArchBtn();
   if(shelfMode || subMode || memoMode){
     if(shelfMode) renderShelf(); else if(memoMode) renderMemoTab(); else renderSubTab();
     $("#listBar").style.display = "flex";
@@ -2031,15 +2106,25 @@ function renderList(){
   const hit = visibleDrinks();
   const sm = state.selMode;
   let html = "";
-  if(!data.drinks.length && !q){                   // 처음 왔을 때는 분류 대신 길을 알려준다
-    $("#listBody").innerHTML = `<div class="empty" style="padding:26px 18px 22px">
-        ${emptyMouse(2)}
-        <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">아직 레시피가 없어요</b>
-        오른쪽 위 <b>+</b> 로 직접 넣거나<br>사진 속 글자를 붙여넣어 등록할 수 있어요.<br>
-        어떤 앱인지 먼저 둘러보시려면 아래를 눌러보세요.
-        <button class="cta ghost" id="emptySample" style="margin-top:18px">샘플 레시피 15개 넣어보기</button>
-      </div>`;
-    $("#emptySample").addEventListener("click", loadSamples);
+  if(!liveDrinks().length && !q){                   // 처음 왔을 때는 분류 대신 길을 알려준다
+    const nArch = archDrinks().length;
+    $("#listBody").innerHTML = nArch
+      /* 전부 보관해 둔 상태 — 데이터가 사라진 게 아니라는 걸 분명히 해준다 */
+      ? `<div class="empty" style="padding:26px 18px 22px">
+          ${emptyMouse(2)}
+          <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">보이는 레시피가 없어요</b>
+          ${nArch}개를 모두 보관해 두셨어요.<br>지워진 게 아니라 학습에서만 빠져 있습니다.
+          <button class="cta ghost" id="emptyArch" style="margin-top:18px">보관함 열기</button>
+        </div>`
+      : `<div class="empty" style="padding:26px 18px 22px">
+          ${emptyMouse(2)}
+          <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">아직 레시피가 없어요</b>
+          오른쪽 위 <b>+</b> 로 직접 넣거나<br>사진 속 글자를 붙여넣어 등록할 수 있어요.<br>
+          어떤 앱인지 먼저 둘러보시려면 아래를 눌러보세요.
+          <button class="cta ghost" id="emptySample" style="margin-top:18px">샘플 레시피 15개 넣어보기</button>
+        </div>`;
+    if($("#emptySample")) $("#emptySample").addEventListener("click", loadSamples);
+    if($("#emptyArch")) $("#emptyArch").addEventListener("click", openArch);
     $("#listBar").style.display = "flex";
     $("#selBar").style.display = "none";
     $("#selActions").classList.remove("on");
@@ -2062,7 +2147,7 @@ function renderList(){
   $("#listBar").style.display = sm ? "none" : "flex";
   $("#selBar").style.display = sm ? "flex" : "none";
   $("#selActions").classList.toggle("on", sm);
-  $("#selBtn").style.display = (data.drinks.length && !sm) ? "block" : "none";
+  $("#selBtn").style.display = (liveDrinks().length && !sm) ? "block" : "none";
   if(sm) updateSelBar();
 }
 function updateSelBar(){
@@ -2072,6 +2157,8 @@ function updateSelBar(){
   $("#selAll").textContent = allOn ? "선택 해제" : "모두 선택";
   $("#selDelete").disabled = n === 0;
   $("#selDelete").textContent = n ? n + "개 삭제" : "삭제";
+  $("#selArchive").disabled = n === 0;
+  $("#selArchive").textContent = n ? n + "개 보관" : "보관";
 }
 /* 목록 전체를 다시 그리지 않고 해당 줄만 갱신 (탭 반응이 즉각적이도록) */
 function toggleSel(id){
@@ -2101,6 +2188,19 @@ $("#selAll").addEventListener("click", ()=>{
   document.querySelectorAll("#listBody .row").forEach(r=>r.classList.toggle("on", state.sel.has(r.dataset.id)));
   updateSelBar();
 });
+$("#selArchive").addEventListener("click", ()=>{
+  const ids = Array.from(state.sel);
+  if(!ids.length) return;
+  const first = data.drinks.find(d=>d.id===ids[0]);
+  const label = ids.length === 1 ? `“${first?first.name:""}”를` : `선택한 ${ids.length}개를`;
+  confirmBox("레시피 보관",
+    `${label} 보관할까요? 내용은 그대로 남고 학습과 목록에서만 빠집니다.`,
+    "보관", ()=>{
+      setArch(ids, true);
+      toast(`${ids.length}개를 보관함으로 옮겼어요`);
+      exitSel(); renderHome();
+    });
+});
 $("#selDelete").addEventListener("click", ()=>{
   const ids = Array.from(state.sel);
   if(!ids.length) return;
@@ -2111,7 +2211,7 @@ $("#selDelete").addEventListener("click", ()=>{
     ids.forEach(id=>{ rm(data.mastered,id); rm(data.needReview,id); });
     persist();
     toast(`${ids.length}개를 삭제했어요`);
-    exitSel();
+    exitSel(); renderHome();
   });
 });
 $("#q").addEventListener("input", renderList);
@@ -2244,7 +2344,7 @@ function renderSubTab(){
         return `<button class="row" data-id="${esc(s.id)}">
           <span class="subb">부재료</span>
           <span class="meta"><b>${esc(s.name)}</b><span>${uses.length
-            ? uses.map(d=>esc(d.name)).join(" · ")
+            ? uses.map(d=>esc(d.name) + (d.arch ? " 📦" : "")).join(" · ")
             : "아직 연결된 메뉴가 없어요"}</span></span>
           ${uses.length > 1 ? `<span class="pill done">${uses.length}곳</span>` : ""}
         </button>`;
@@ -2306,7 +2406,7 @@ function openSubLinkSheet(id){
     const list = q ? data.drinks.filter(d=>textHit([d.name,d.en||""].join(" "), q.toLowerCase())) : data.drinks;
     $("#linkList").innerHTML = list.length
       ? list.map(d=>`<button type="button" class="pick linkrow${picked.has(d.id)?" on":""}" data-id="${esc(d.id)}">
-           <span class="box">✓</span>${esc(d.name)}</button>`).join("")
+           <span class="box">✓</span>${esc(d.name)}${d.arch?" 📦":""}</button>`).join("")
       : `<p class="cap" style="margin:6px 0 0">“${esc(q)}”에 맞는 메뉴가 없어요.</p>`;
     $("#linkList").querySelectorAll(".linkrow").forEach(b=>b.addEventListener("click", ()=>{
       const did = b.dataset.id;
@@ -2490,19 +2590,38 @@ function openSheet(id){
   $("#sheetBody").innerHTML = `
     <h2 style="margin:0 0 2px;font-size:23px;font-weight:800;letter-spacing:-.5px">${esc(d.name)}</h2>
     <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">${[enText(d.en),d.temp,cupText(d)].filter(Boolean).map(esc).join(" · ")}</div>
+    ${d.arch ? `<div class="banner ok" style="margin:0 0 18px"><span>📦</span><div><b>보관 중인 레시피예요.</b><br>학습과 레시피 목록에는 나오지 않습니다.</div></div>` : ""}
     ${detailHTML(d)}
     <button class="cta" id="sheetEdit" style="margin-top:22px">수정하기</button>
-    <button class="cta ghost" id="sheetStudy">이 메뉴만 학습</button>
+    ${d.arch ? "" : `<button class="cta ghost" id="sheetStudy">이 메뉴만 학습</button>`}
+    <button class="cta ghost" id="sheetArch">${d.arch ? "보관 해제하기" : "보관하기"}</button>
     <button class="cta danger" id="sheetDel">삭제하기</button>`;
   $("#mask").classList.add("on"); $("#sheet").classList.add("on");
   $("#sheetEdit").addEventListener("click", ()=>{ closeSheet(); openEditor(d.id); });
-  $("#sheetStudy").addEventListener("click", ()=>{ closeSheet(); startSession([d]); });
+  if($("#sheetStudy")) $("#sheetStudy").addEventListener("click", ()=>{ closeSheet(); startSession([d]); });
+  $("#sheetArch").addEventListener("click", ()=>{
+    closeSheet();
+    if(d.arch){
+      setArch(d.id, false);
+      toast("보관을 해제했어요");
+      renderArch(); renderList(); renderHome();
+      return;
+    }
+    confirmBox("레시피 보관",
+      `“${d.name}”를 보관할까요? 내용은 그대로 남고 학습과 목록에서만 빠집니다. 보관함에서 언제든 되돌릴 수 있어요.`,
+      "보관", ()=>{
+        setArch(d.id, true);
+        toast("보관함으로 옮겼어요");
+        renderList(); renderHome();
+      });
+  });
   $("#sheetDel").addEventListener("click", ()=>{
     closeSheet();
     confirmBox("레시피 삭제", `“${d.name}”를 삭제할까요? 되돌릴 수 없어요.`, "삭제", ()=>{
       data.drinks = data.drinks.filter(x=>x.id!==d.id);
       rm(data.mastered,d.id); rm(data.needReview,d.id);
       persist(); toast("삭제했어요");
+      if($("#s-arch").classList.contains("active")) renderArch();
       renderList(); renderHome();
     });
   });
@@ -3099,6 +3218,9 @@ $("#saveBtn").addEventListener("click", ()=>{
     cat: $("#e-cat").value, name: name, en: $("#e-en").value.trim(),
     temp: $("#e-temp").value, cups: readCupField(),
     ing: ing, steps: steps, tip: $("#e-tip").value.trim(),
+    /* 저장할 때 레코드를 새로 만들기 때문에 보관 상태를 명시적으로 물려받아야 한다.
+       안 그러면 보관해 둔 레시피를 고치는 순간 학습에 다시 튀어나온다 */
+    arch: state.editingId ? !!(data.drinks.find(x=>x.id===state.editingId)||{}).arch : false,
     subRefs: state.editSubRefs.filter(subById)
   };
   if(state.editingId){
@@ -3299,7 +3421,7 @@ function renderSettings(){
   renderPinCard();
   renderCats();
   document.querySelectorAll("#enSeg button").forEach(b=>b.classList.toggle("on", b.dataset.en === data.enCase));
-  $("#cntDrinks").textContent = data.drinks.length;
+  $("#cntDrinks").textContent = liveDrinks().length;
   $("#cntShelf").textContent = data.shelf.length;
   $("#cntMastered").textContent = data.mastered.length;
   $("#setStatus").innerHTML = Store.available
@@ -3390,6 +3512,7 @@ function applyBackup(text){
         temp:String(x.temp||""), cups:Array.isArray(x.cups)?x.cups.map(String):(x.cup?[String(x.cup)]:[]),
         ing:Array.isArray(x.ing)?x.ing.map(p=>[String(p[0]||""),String(p[1]||"")]):[],
         steps:Array.isArray(x.steps)?x.steps.map(String):[], tip:String(x.tip||""),
+        arch:!!x.arch,
         subRefs:Array.isArray(x.subRefs)?x.subRefs.map(String):[],
         subs:Array.isArray(x.subs)?x.subs.map(cleanSub):[]
       })), mastered:Array.isArray(d.mastered)?d.mastered:[], needReview:Array.isArray(d.needReview)?d.needReview:[]};
