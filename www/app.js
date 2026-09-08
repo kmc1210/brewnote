@@ -577,7 +577,7 @@ function situationCheer(now, streak, v){
   if(total === 0)
     return {ico:"📝", msg:"레시피가 아직 없츄. 한 개만 넣어보면 바로 시작이츄"};
   if(kill > 0 && hour < 14)                       // 오픈·미들 시간대에만
-    return {ico:"🗑️", msg:"오늘 버릴 게 " + kill + "개 있츄. 내품기 먼저 보고 가자츄"};
+    return {ico:"🗑️", msg:"오늘 버릴 게 " + kill + "개 있츄. 개봉관리 먼저 보고 가자츄"};
   if(rev >= 5)
     return {ico:"🔁", msg:"다시 볼 메뉴가 " + rev + "개나 쌓였츄. 오늘 좀 덜어내자츄"};
   if(done === 0)
@@ -761,7 +761,7 @@ function renderListSub(){
   const el = $("#listSub"); if(!el) return;
   if(state.listTab === "shelf"){
     const today = tagGroups().reduce((n,g)=>n+g.items.length, 0);
-    el.textContent = "내품기 " + data.shelf.length + "개"
+    el.textContent = "개봉 항목 " + data.shelf.length + "개"
       + (today ? " · 오늘 폐기 " + today + "개" : "");
     return;
   }
@@ -937,7 +937,7 @@ function blankHTML(d){
   return `<div class="face"><div class="back">
     <h2>${esc(d.name)}</h2>
     <div class="sub">${sub}</div>
-    <div class="blk"><div class="lb">${d._shelf?"내부품질기한":"재료 / 용량"}</div>
+    <div class="blk"><div class="lb">${d._shelf?"품질 유지기한":"재료 / 용량"}</div>
       ${d.ing.length ? d.ing.map((it,i)=>`<div class="ing q"><b>${esc(it[0])}</b>${
           state.revealed.has(i)
             ? `<span class="amt-on">${esc(it[1]) || "—"}</span>`
@@ -986,7 +986,7 @@ function frontHTML(d){
     <div class="hint">재료와 용량을 떠올린 뒤 카드를 탭하세요</div></div></div>`;
 }
 function detailHTML(d){
-  return `${d.ing.length?`<div class="blk"><div class="lb">${d._shelf?"내부품질기한":"재료 / 용량"}</div>
+  return `${d.ing.length?`<div class="blk"><div class="lb">${d._shelf?"품질 유지기한":"재료 / 용량"}</div>
       ${d.ing.map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("")}</div>`:""}
     ${d.steps.length?`<div class="blk"><div class="lb">제조 순서</div>
       <ol class="steps">${d.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></div>`:""}
@@ -1204,7 +1204,7 @@ function renderShelf(){
   const groups = shelfGroups();
 
   if(!data.shelf.length){
-    box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 내품기가 없어요.<br>오른쪽 위 + 로 추가하면<br>기한별로 여기에 묶여서 보입니다.</div>`;
+    box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 개봉 항목이 없어요.<br>오른쪽 위 + 로 추가하면<br>기한별로 여기에 묶여서 보입니다.</div>`;
     return;
   }
   let html = "";
@@ -1599,7 +1599,7 @@ function openSubLinkSheet(id){
   });
 }
 
-/* ---------- 내품기 ---------- */
+/* ---------- 개봉관리 ---------- */
 /* ---------- 메모 ---------- */
 function fmtMemoAt(at){
   const d = new Date(at);
@@ -1672,7 +1672,7 @@ function openShelfSheet(idx){
   const s = (idx === null || idx < 0) ? {name:"", place:"냉장", dur:"", note:""} : data.shelf[idx];
   const isNew = (idx === null || idx < 0);
   $("#sheetBody").innerHTML = `
-    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">${isNew?"내품기 추가":"내품기 수정"}</h2>
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">${isNew?"개봉 항목 추가":"개봉 항목 수정"}</h2>
     <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">개봉하거나 만든 뒤 언제까지 쓸 수 있는지</div>
     <div class="fld"><label>항목 이름 *</label>
       <input type="text" id="sh-name" value="${esc(s.name)}" placeholder="예: 개봉한 우유" autocomplete="off"></div>
@@ -1707,7 +1707,7 @@ function openShelfSheet(idx){
   const del = $("#shDel");
   if(del) del.addEventListener("click", ()=>{
     closeSheet();
-    confirmBox("내품기 삭제", `“${s.name}”를 삭제할까요?`, "삭제", ()=>{
+    confirmBox("개봉 항목 삭제", `“${s.name}”를 삭제할까요?`, "삭제", ()=>{
       const cid = "shelf:"+s.id;
       data.shelf.splice(idx,1);
       rm(data.mastered,cid); rm(data.needReview,cid);
@@ -1815,7 +1815,7 @@ const CAT_HINT = [
 ];
 const ICE_RE = /(아이스|ice|iced|콜드|cold|찬)/i;
 const HOT_RE = /(핫|따뜻|온음료|hot|웜)/i;
-const CUP_RE = /((?:\d{1,2}\s?(?:oz|온스))|(?:\d{2,4}\s?(?:ml|cc))\s*(?:잔|컵)|(?:톨|그란데|벤티|숏|레귤러|라지|스몰)\s*(?:사이즈)?|데미타세)/i;
+const CUP_RE = /((?:\d{1,2}\s?(?:oz|온스))|(?:\d{2,4}\s?(?:ml|cc))\s*(?:잔|컵)|(?:레귤러|라지|스몰)\s*(?:사이즈)?|데미타세)/i;
 const TEMP_TOKEN = /(^|\s)(HOT|ICE[D]?|COLD|핫|아이스)(\s|$)/i;
 const STEP_END = /(다|요|것|기|해|줘|세요|하기|주기|넣기|붓기|섞기)\s*[.!]?$/;
 const STEP_VERB = /(붓|넣|섞|저어|젓|추출|스팀|올리|채우|담|풀|녹이|흔들|셰이크|가니시|마무리|올린|뿌리|뿌려|짜|거르|우려|우린|블렌|갈아|얹|따라|따른|데우|데운|휘핑|체에|내려|완성|쌓)/;
@@ -2085,7 +2085,7 @@ function bindOrd(w, after){
 function renumber(){
   document.querySelectorAll("#e-steps .stepnum").forEach((el,i)=>el.textContent = (i+1)+".");
 }
-const CUP_PRESETS = ["Short","Tall","Grande","Venti"];
+const CUP_PRESETS = ["8oz","12oz","16oz","20oz"];
 
 /* 컵 사이즈는 여러 개 고를 수 있다 (프리셋 + 직접 입력) */
 function renderCupPicks(){
@@ -2739,7 +2739,7 @@ function loadSamples(){
   persist();
   const parts = [];
   if(fresh.length) parts.push("레시피 " + fresh.length + "개");
-  if(freshShelf.length) parts.push("내품기 " + freshShelf.length + "개");
+  if(freshShelf.length) parts.push("개봉 항목 " + freshShelf.length + "개");
   toast(parts.join(" · ") + " 불러왔어요");
   renderList(); renderHome(); renderSettings();
 }
