@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="암기쥐">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F7F3EE">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="64x64" href="data:image/png;base64,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">
+<meta name="referrer" content="no-referrer">
+<!-- 레시피가 밖으로 나가지 않는다는 걸 약속이 아니라 브라우저가 강제하게 한다.
+     connect-src 'none' — 어떤 통신도 못 나간다. 실수로 코드를 붙여도 차단된다.
+     style-src 에 unsafe-inline 이 남은 건 마크업의 style="..." 속성 때문.
+     frame-ancestors 는 meta 로는 무시되므로 넣지 않았다 (헤더로만 동작). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>암기쥐 · 카페 음료 레시피 외우기</title>
+<link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+<div class="phone">
+  <div class="island"></div>
+  <div class="statusbar">
+    <span id="clock">9:41</span>
+    <span class="icons">
+      <span class="bar" style="height:5px"></span><span class="bar" style="height:8px"></span>
+      <span class="bar" style="height:11px"></span><span class="bar" style="height:13px"></span>
+      <span style="font-size:12px;margin:0 3px">5G</span>
+      <span style="display:inline-block;width:22px;height:11px;border:1.4px solid var(--ink);border-radius:3px;position:relative">
+        <span style="position:absolute;inset:1.4px;width:12px;background:var(--ink);border-radius:1px;display:block"></span>
+      </span>
+    </span>
+  </div>
+
+  <div class="app">
+    <!-- HOME -->
+    <section class="screen active" id="s-home">
+      <div class="appbar">
+        <div class="gtext"><h1 id="greetT">오늘도 한 잔 외워볼까요?</h1><p id="greetP">암기쥐 · 카페 음료 레시피 외우기</p></div>
+        <div class="mwrap">
+          <button class="mascot" id="mascot" aria-label="응원 한마디"></button>
+        </div>
+      </div>
+      <div class="bubblerow"><div class="bubble" id="mbubble"></div></div>
+      <div id="panicLayer" aria-hidden="true"><div id="panicSh"></div><div id="panicRun"></div><div id="panicBell"></div></div>
+      <div class="scroll">
+        <div class="hero">
+          <div class="ring">
+            <svg width="88" height="88" viewBox="0 0 88 88">
+              <circle cx="44" cy="44" r="37" fill="none" stroke="rgba(246,238,230,.18)" stroke-width="8"/>
+              <circle id="ringFill" cx="44" cy="44" r="37" fill="none" stroke="#E8B98A" stroke-width="8"
+                      stroke-linecap="round" stroke-dasharray="232.5" stroke-dashoffset="232.5" style="transition:stroke-dashoffset .6s ease"/>
+            </svg>
+            <div class="val"><span id="ringPct">0%</span><small>마스터</small></div>
+          </div>
+          <div class="txt"><h2 id="heroTitle"></h2><p id="heroSub"></p></div>
+        </div>
+        <div id="storeBanner"></div>
+        <div id="backupBanner"></div>
+
+        <div class="sect" id="todaySect" style="display:none">
+          <div class="sect-h"><h3>오늘 폐기</h3><span id="todayDate"></span></div>
+          <div id="todayList"></div>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h"><h3>학습 범위</h3><span id="deckCount"></span></div>
+          <div class="chips" id="chips"></div>
+          <button class="cta" id="startBtn">학습 시작하기</button>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h"><h3>복습이 필요해요</h3>
+            <span style="display:flex;gap:12px;align-items:baseline">
+              <button class="linkbtn" id="revStudy" style="display:none">이것만 학습</button>
+              <span id="reviewCount"></span>
+            </span></div>
+          <div id="reviewList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STUDY -->
+    <section class="screen" id="s-study">
+      <div class="study-top">
+        <button class="icon-btn" id="quitBtn">✕</button>
+        <div class="track"><i id="progBar" style="width:0%"></i></div>
+        <span class="count" id="progTxt">0/0</span>
+      </div>
+      <div class="card-wrap" id="cardWrap"><div class="card" id="card"></div></div>
+      <div class="actions" id="actions"></div>
+    </section>
+
+    <!-- RESULT -->
+    <section class="screen" id="s-result">
+      <div class="result">
+        <div class="eatbox" id="resMascot"></div>
+        <h2>세션 완료!</h2>
+        <p id="resMsg"></p>
+        <p id="resCheer" style="margin-top:6px;color:var(--accent-ink);font-weight:700"></p>
+        <div class="score">
+          <div><b id="resOk">0</b><span>한 번에 맞춤</span></div>
+          <div><b id="resAgain">0</b><span>다시 본 카드</span></div>
+          <div><b id="resTotal">0</b><span>전체 카드</span></div>
+        </div>
+        <button class="cta" style="max-width:300px" id="againBtn">한 번 더 학습</button>
+        <button style="margin-top:12px;font-size:14.5px;font-weight:600;color:var(--muted);padding:10px" id="homeBtn">홈으로</button>
+      </div>
+    </section>
+
+    <!-- LIST -->
+    <section class="screen" id="s-list">
+      <div class="appbar" id="listBar">
+        <div><h1>레시피</h1><p id="listSub">탭하면 상세 보기 · + 로 추가</p></div>
+        <div class="tools">
+          <button class="archbtn" id="archBtn" style="display:none">📦 <b id="archCnt">0</b></button>
+          <button class="add" id="newBtn">+</button>
+        </div>
+      </div>
+      <div class="selbar" id="selBar" style="display:none">
+        <button class="linkbtn mute" id="selCancel">취소</button>
+        <span class="cnt" id="selCnt">0개 선택</span>
+        <button class="linkbtn" id="selAll">모두 선택</button>
+      </div>
+      <div class="scroll">
+        <div class="seg" id="listSeg" style="margin-bottom:14px">
+          <button data-tab="recipe">레시피</button>
+          <button data-tab="sub">부재료</button>
+          <button data-tab="shelf">내품기</button>
+          <button data-tab="memo">메모</button>
+        </div>
+        <div class="searchrow">
+          <div class="search"><span style="color:var(--muted);font-size:15px">🔍</span>
+            <input id="q" type="search" placeholder="메뉴 이름 · 재료로 검색" autocomplete="off"></div>
+          <button class="linkbtn" id="selBtn">선택</button>
+        </div>
+        <div class="pane" id="listPane">
+          <div id="listBody"></div>
+          <div id="subBody"></div>
+          <div id="shelfBody"></div>
+          <div id="memoBody"></div>
+        </div>
+      </div>
+      <div class="selactions" id="selActions">
+        <button class="arch-b" id="selArchive" disabled>보관</button>
+        <button class="del-b" id="selDelete" disabled>삭제</button>
+      </div>
+    </section>
+
+    <!-- ARCHIVE -->
+    <section class="screen" id="s-arch">
+      <div class="appbar"><div><h1>보관함</h1><p id="archSub"></p></div>
+        <button class="icon-btn" id="archClose" style="margin-bottom:4px">✕</button></div>
+      <div class="scroll notabs">
+        <div class="searchrow" style="margin-bottom:14px">
+          <div class="search"><span style="color:var(--muted);font-size:15px">🔍</span>
+            <input id="archQ" type="search" placeholder="메뉴 이름 · 재료로 검색" autocomplete="off"></div>
+        </div>
+        <div id="archBody"></div>
+      </div>
+    </section>
+
+    <!-- EDIT -->
+    <section class="screen" id="s-edit">
+      <div class="appbar"><div><h1 id="editTitle">레시피 추가</h1><p>이 기기에만 저장됩니다</p></div>
+        <button class="icon-btn" id="editClose" style="margin-bottom:4px">✕</button></div>
+      <div class="scroll notabs">
+        <div class="fld"><label>메뉴 이름 *</label><input type="text" id="e-name" placeholder="예: 아인슈페너" autocomplete="off"></div>
+        <div class="fld"><label>영문 이름</label><input type="text" id="e-en" placeholder="예: Einspanner" autocomplete="off"></div>
+        <div class="two">
+          <div class="fld"><label>카테고리</label><div class="selwrap"><select id="e-cat"></select></div></div>
+          <div class="fld"><label>온도</label><div class="selwrap"><select id="e-temp">
+            <option value="ICE">ICE</option><option value="HOT">HOT</option><option value="ICE/HOT">ICE/HOT</option></select></div></div>
+        </div>
+        <div class="fld"><label>컵 / 사이즈</label>
+          <p style="margin:-2px 0 10px;font-size:12.5px;color:var(--muted);line-height:1.5">여러 개 고를 수 있어요. 안 쓰면 비워두면 됩니다.</p>
+          <div class="pickers" id="e-cups"></div>
+          <input type="text" id="e-cup" placeholder="직접 입력할 사이즈 (예: 16oz, 자스민잔)" autocomplete="off" style="margin-top:9px;display:none"></div>
+        <div class="fld"><label>재료 / 용량 *</label><div id="e-ing"></div>
+          <button class="addrow" id="addIng">+ 재료 추가</button></div>
+        <div class="fld"><label>제조 순서</label><div id="e-steps"></div>
+          <button class="addrow" id="addStep">+ 순서 추가</button></div>
+        <div class="fld"><label>기억 포인트</label><textarea id="e-tip" placeholder="헷갈리는 지점, 실수하기 쉬운 부분을 적어두세요"></textarea></div>
+        <div class="fld"><label>부재료 레시피</label>
+          <p style="margin:-2px 0 10px;font-size:12.5px;color:var(--muted);line-height:1.5">자몽청처럼 따로 만들어 두는 재료예요. 한 번 등록해 두면 다른 메뉴에서도 골라 쓸 수 있고, 고치면 쓰는 메뉴에 함께 반영됩니다. 학습 카드에는 나오지 않아요.</p>
+          <div id="e-subs"></div>
+          <button class="addrow" id="addSub">+ 부재료 추가</button></div>
+        <button class="cta" id="saveBtn">저장하기</button>
+        <button class="cta danger" id="delBtn" style="margin-top:10px;display:none">이 레시피 삭제</button>
+      </div>
+    </section>
+
+    <!-- SUB RECIPE -->
+    <section class="screen" id="s-sub">
+      <div class="appbar"><div><h1 id="subTitle">부재료 추가</h1><p id="subParent"></p></div>
+        <button class="icon-btn" id="subClose" style="margin-bottom:4px">✕</button></div>
+      <div class="scroll notabs">
+        <div class="fld"><label>부재료 이름 *</label><input type="text" id="s-name" placeholder="예: 자몽청" autocomplete="off"></div>
+        <div class="fld"><label>재료 / 용량</label><div id="s-ing"></div>
+          <button class="addrow" id="addSubIng">+ 재료 추가</button></div>
+        <div class="fld"><label>만드는 순서</label><div id="s-steps"></div>
+          <button class="addrow" id="addSubStep">+ 순서 추가</button></div>
+        <div class="fld"><label>보관 · 내품기</label>
+          <div class="pickers" id="s-place"></div>
+          <input type="text" id="s-dur" placeholder="예: 냉장 7일" autocomplete="off" style="margin-top:9px"></div>
+        <div class="fld"><label>기억 포인트</label><textarea id="s-tip" placeholder="비율, 주의할 점 등"></textarea></div>
+        <button class="cta" id="subSave">저장하기</button>
+        <button class="cta danger" id="subDel" style="margin-top:10px;display:none">이 부재료 삭제</button>
+      </div>
+    </section>
+
+    <!-- IMPORT FROM PHOTO -->
+    <section class="screen" id="s-import">
+      <div class="appbar"><div><h1>사진에서 가져오기</h1><p>아이폰이 사진 속 글자를 직접 읽습니다</p></div>
+        <button class="icon-btn" id="impClose" style="margin-bottom:4px">✕</button></div>
+      <div class="scroll notabs">
+        <ol class="guide">
+          <li>사진 앱에서 레시피 사진을 엽니다.</li>
+          <li>사진 속 글자를 <b>길게 눌러</b> 선택하고 <b>모두 선택 → 복사</b>를 누릅니다. (오른쪽 아래 텍스트 인식 아이콘을 먼저 눌러도 됩니다)</li>
+          <li>아래 칸을 길게 눌러 <b>붙여넣기</b> 한 뒤 분석하기를 누릅니다.</li>
+        </ol>
+        <div class="banner ok" style="margin:0 0 16px"><span>🔒</span><div>글자 인식은 아이폰이 처리합니다. 사진도 글자도 <b>어디로도 전송되지 않아요.</b></div></div>
+        <textarea class="mono" id="ocrBox" style="min-height:190px;font-family:inherit;font-size:14px;line-height:1.6"
+          placeholder="여기에 붙여넣기&#10;&#10;예시)&#10;아이스 바닐라라떼 16oz&#10;바닐라시럽 25ml&#10;에스프레소 2샷&#10;우유 200ml&#10;1. 시럽과 에스프레소를 먼저 섞는다"></textarea>
+        <button class="cta ghost" id="pasteBtn" style="margin-top:0">클립보드에서 붙여넣기</button>
+        <button class="cta" id="parseBtn">분석하기</button>
+        <div id="prevWrap" style="margin-top:22px"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="screen" id="s-set">
+      <div class="appbar"><div><h1>설정</h1><p>저장과 백업</p></div></div>
+      <div class="scroll">
+        <div class="setcard">
+          <h4>테마</h4>
+          <p>화면 색을 바꿉니다. 선택한 테마는 이 기기에 저장돼요.</p>
+          <div class="themes" id="themeBtns">
+            <button class="theme-b" data-theme="cream">
+              <span class="sw"><i style="background:#F7F3EE"></i><i style="background:#A65E2E"></i><i style="background:#3A2C22"></i></span>
+              기본
+            </button>
+            <button class="theme-b" data-theme="dark">
+              <span class="sw"><i style="background:#14110E"></i><i style="background:#D89A63"></i><i style="background:#1E1A16"></i></span>
+              다크
+            </button>
+            <button class="theme-b" data-theme="green">
+              <span class="sw"><i style="background:#F1F6F1"></i><i style="background:#1E6B45"></i><i style="background:#0F3323"></i></span>
+              그린
+            </button>
+          </div>
+        </div>
+        <div id="setStatus"></div>
+
+        <div class="setcard">
+          <h4>PIN 잠금</h4>
+          <p id="pinDesc">앱을 열 때 네 자리 숫자를 묻습니다. 폰을 잠깐 빌려주거나 주소를 아는 사람이 들어오는 걸 막아줘요. 암호화는 아니라서 브라우저 개발자 도구로는 우회할 수 있습니다.</p>
+          <button class="cta ghost" id="pinToggle">PIN 설정하기</button>
+        </div>
+
+        <div class="setcard">
+          <h4>영문 이름 표기</h4>
+          <p>저장된 글자는 그대로 두고 화면에 보이는 모양만 바꿉니다.</p>
+          <div class="seg" id="enSeg">
+            <button data-en="as-is">그대로<small>Einspanner</small></button>
+            <button data-en="upper">대문자<small>EINSPANNER</small></button>
+            <button data-en="lower">소문자<small>einspanner</small></button>
+          </div>
+        </div>
+
+        <div class="setcard">
+          <h4>카테고리</h4>
+          <p>학습 범위와 레시피 목록에서 쓰이는 분류예요. 이름과 이모지를 바꾸거나 새로 만들 수 있습니다.</p>
+          <div id="catList"></div>
+          <button class="cta ghost" id="catAdd" style="margin-top:10px">+ 카테고리 추가</button>
+        </div>
+
+        <div class="setcard">
+          <h4>백업 내보내기</h4>
+          <p>레시피와 학습 기록을 JSON 파일 하나로 저장합니다. 기기를 바꾸거나 사파리 데이터가 지워져도 이 파일로 복구할 수 있어요.</p>
+          <button class="cta" id="expFile">파일로 저장</button>
+          <button class="cta ghost" id="expText">텍스트로 복사</button>
+          <textarea class="mono" id="expBox" style="display:none" readonly></textarea>
+        </div>
+
+        <div class="setcard">
+          <h4>백업 불러오기</h4>
+          <p>백업 파일을 선택하거나 복사해둔 텍스트를 붙여넣으세요. 현재 데이터는 덮어쓰기 됩니다.</p>
+          <button class="cta ghost" id="impFile">백업 파일 선택</button>
+          <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+          <textarea class="mono" id="impBox" placeholder="여기에 백업 텍스트를 붙여넣기"></textarea>
+          <button class="cta ghost" id="impText">붙여넣은 텍스트로 복원</button>
+        </div>
+
+        <div class="setcard">
+          <h4>데이터 관리</h4>
+          <p>레시피 <b id="cntDrinks">0</b>개 · 내품기 <b id="cntShelf">0</b>개 · 외운 항목 <b id="cntMastered">0</b>개</p>
+          <button class="cta ghost" id="loadSamples">샘플 데이터 불러오기</button>
+          <button class="cta ghost" id="resetProg">학습 기록만 초기화</button>
+          <button class="cta danger" id="wipeAll">전체 데이터 삭제</button>
+        </div>
+
+        <div class="setcard">
+          <h4>이 앱의 보안</h4>
+          <p style="margin-bottom:0">외부로 나가는 통신이 전혀 없습니다. 서버도, 계정도, 분석 도구도 사용하지 않아요. 입력한 레시피는 이 아이폰의 사파리 저장소에만 남고, 앱을 삭제하거나 사파리 데이터를 지우면 함께 사라집니다. 그래서 백업 파일을 한 번 만들어 두시는 걸 권해요.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="lock" id="lock">
+      <div class="lockbox">
+        <div class="lockmascot" id="lockMascot"></div>
+        <h2 id="lockTitle">PIN을 입력하세요</h2>
+        <p id="lockSub">이 기기에서만 확인합니다</p>
+        <div class="dots" id="lockDots"></div>
+        <div class="keys" id="lockKeys"></div>
+        <button class="linkbtn mute" id="lockCancel" style="margin-top:6px;display:none">취소</button>
+      </div>
+    </div>
+
+    <div class="mask" id="mask"></div>
+    <div class="sheet" id="sheet"><div class="grab"></div><div class="body" id="sheetBody"></div></div>
+
+    <div class="dlg" id="dlg"><div class="box">
+      <h4 id="dlgT"></h4><p id="dlgM"></p>
+      <div class="btns"><button class="no" id="dlgNo">취소</button><button class="yes" id="dlgYes">확인</button></div>
+    </div></div>
+
+    <div class="toast" id="toast"></div>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab on" data-go="home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg>홈</button>
+      <button class="tab" data-go="study">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="3"/><path d="M8 9.5h4M8 13h6"/><path d="M20.5 8v9.5a2 2 0 0 1-2 2H9"/></svg>학습</button>
+      <button class="tab" data-go="list">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>레시피</button>
+      <button class="tab" data-go="set">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6"/></svg>설정</button>
+    </nav>
+
+    <div class="homebar"></div>
+  </div>
+</div>
+
+<script src="app.js?v=2"></script>
+</body>
+</html>
