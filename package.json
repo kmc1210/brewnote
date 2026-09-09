@@ -1,0 +1,12 @@
+{
+  "name": "brewnote",
+  "version": "1.0.0",
+  "private": true,
+  "description": "카페 음료 레시피 외우기 앱 (암기쥐)",
+  "scripts": {
+    "test": "node test/regression.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}

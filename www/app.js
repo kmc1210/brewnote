@@ -1,0 +1,2793 @@
+"use strict";
+/* =========================================================
+   암기쥐 — 전부 기기 안에서만 동작합니다.
+   네트워크 요청 없음 / 외부 스크립트 없음 / 서버 없음
+   ========================================================= */
+
+const DEFAULT_CATS = [
+  {id:"coffee", label:"커피",        emo:"☕️"},
+  {id:"ade",    label:"에이드·주스", emo:"🍋"},
+  {id:"tea",    label:"티·기타",     emo:"🍵"}
+];
+/* 영문 이름 표기: 저장된 글자는 그대로 두고 보이는 모양만 바꾼다 */
+function enText(s){
+  if(!s) return "";
+  if(data.enCase === "upper") return s.toUpperCase();
+  if(data.enCase === "lower") return s.toLowerCase();
+  return s;
+}
+const PLACES = ["냉장","냉동","실온"];
+/* 기한 문자열에서 '일' 수를 뽑는다. 시간·초 단위면 null */
+function durDays(s){
+  const m = String(s||"").match(/(\d+)\s*일/);
+  return m ? parseInt(m[1],10) : null;
+}
+function addDays(d, n){ const x=new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate()+n); return x; }
+function fmtDate(d){
+  const p=x=>String(x).padStart(2,"0");
+  return String(d.getFullYear()).slice(2)+"."+p(d.getMonth()+1)+"."+p(d.getDate());
+}
+const TAG_COLORS = ["#E1832E","#E0A82E","#3E9E6B","#4A9BD1","#3C5A94","#7A4E9E","#C4483E"];
+function cupList(d){ return Array.isArray(d.cups) ? d.cups.filter(Boolean) : (d.cup ? [d.cup] : []); }
+function cupText(d){ return cupList(d).join(" · "); }
+function catOf(id){ for(let i=0;i<data.cats.length;i++){ if(data.cats[i].id===id) return data.cats[i]; } return null; }
+function catLabel(id){ const c=catOf(id); return c ? c.label : ""; }
+function catEmo(id){ const c=catOf(id); return c ? c.emo : "🥤"; }
+function firstCatId(){ return data.cats.length ? data.cats[0].id : "etc"; }
+const KEY = "brewnote.v1";
+
+/* ---------- 저장소 (localStorage, 실패 시 메모리) ---------- */
+const Store = (()=>{
+  let ok = false, mem = null;
+  try{ localStorage.setItem("__bn_t","1"); localStorage.removeItem("__bn_t"); ok = true; }catch(e){ ok = false; }
+  return {
+    get available(){ return ok; },
+    load(){
+      if(ok){ try{ const r = localStorage.getItem(KEY); return r ? JSON.parse(r) : null; }catch(e){ return null; } }
+      return mem;
+    },
+    save(d){
+      mem = d;
+      if(ok){ try{ localStorage.setItem(KEY, JSON.stringify(d)); return true; }catch(e){ ok = false; return false; } }
+      return false;
+    },
+    clear(){ mem = null; if(ok){ try{ localStorage.removeItem(KEY); }catch(e){} } }
+  };
+})();
+
+/* ---------- 샘플 데이터 (설정에서 지울 수 있음) ---------- */
+function seed(){
+  const S = (cat,name,en,temp,cup,ing,steps,tip)=>
+    ({id:uid(), cat, name, en, temp, cups: cup?[cup]:[], ing, steps, tip, subRefs:[]});
+  return [
+    S("coffee","에스프레소","Espresso","HOT","데미타세 60ml",
+      [["원두 도징","18 g"],["추출량","36 g"],["추출 시간","25~30초"]],
+      ["포터필터를 마른 행주로 닦고 원두 18g 도징","레벨링 후 수평 탬핑","즉시 그룹헤드 체결, 3초 내 추출 시작","36g이 25~30초에 떨어지는지 확인"],
+      "추출이 20초 미만이면 분쇄도를 가늘게, 35초를 넘으면 굵게 조정."),
+    S("coffee","아메리카노","Iced Americano","ICE","16oz",
+      [["에스프레소","2샷 (36g)"],["정수","200 ml"],["얼음","130 g"]],
+      ["컵에 얼음 130g을 채운다","정수 200ml를 붓는다","에스프레소 2샷을 얼음 위로 천천히 붓는다"],
+      "에스프레소를 마지막에 부어야 크레마 층이 살아 있고 향이 오래 남는다."),
+    S("coffee","카페라떼","Cafe Latte","HOT","12oz",
+      [["에스프레소","2샷 (36g)"],["스팀밀크","220 ml"],["우유 온도","60~65℃"],["폼 두께","0.5 cm"]],
+      ["우유 220ml를 피처에 붓고 스팀 시작","공기 주입은 2~3초만, 이후 롤링","65℃에서 종료 후 피처를 굴려 폼 정리","에스프레소 위로 낮게 붓다가 마무리에 들어올린다"],
+      "공기 주입이 길면 폼이 두꺼워져 카푸치노가 된다. 라떼는 벨벳 질감이 핵심."),
+    S("coffee","카푸치노","Cappuccino","HOT","8oz",
+      [["에스프레소","2샷 (36g)"],["스팀밀크","150 ml"],["폼 두께","1.5 cm"]],
+      ["우유 150ml 스팀, 공기 주입 5~6초로 폼을 넉넉히","에스프레소 2샷 추출","우유를 부어 폼이 1.5cm 올라오게 마무리"],
+      "잔이 라떼보다 작다. 8oz 잔인지 먼저 확인."),
+    S("coffee","바닐라라떼","Vanilla Latte","ICE","16oz",
+      [["바닐라 시럽","25 ml (5펌프)"],["에스프레소","2샷 (36g)"],["우유","200 ml"],["얼음","120 g"]],
+      ["컵 바닥에 바닐라 시럽 25ml","에스프레소 2샷을 넣고 저어 녹인다","얼음 120g, 우유 200ml"],
+      "시럽을 에스프레소와 먼저 섞어야 바닥에 가라앉지 않는다."),
+    S("coffee","카페모카","Cafe Mocha","ICE","16oz",
+      [["초코 소스","30 ml"],["에스프레소","2샷 (36g)"],["우유","190 ml"],["얼음","120 g"],["휘핑크림","1회전"]],
+      ["초코 소스 30ml + 에스프레소 2샷을 완전히 용해","얼음 120g, 우유 190ml","휘핑크림 1회전 후 초코 드리즐"],
+      "소스가 덜 녹으면 마지막 한 모금만 달아진다. 완전히 저을 것."),
+    S("coffee","아인슈페너","Einspanner","ICE","12oz",
+      [["에스프레소","2샷 (36g)"],["정수","120 ml"],["크림폼","60 ml"],["얼음","100 g"]],
+      ["생크림+설탕을 6부 휘핑","컵에 얼음 100g, 물 120ml, 에스프레소 2샷","크림폼 60ml를 스푼에 받쳐 층지게 올린다"],
+      "크림이 가라앉으면 휘핑 부족. 스푼에서 천천히 흐르는 정도가 기준."),
+    S("coffee","콜드브루 라떼","Cold Brew Latte","ICE","16oz",
+      [["콜드브루 원액","90 ml"],["우유","180 ml"],["얼음","130 g"]],
+      ["컵에 얼음 130g","우유 180ml","콜드브루 원액 90ml를 위로 부어 층을 만든다"],
+      "원액 농도는 매장마다 다름. 기본은 원액:우유 = 1:2."),
+    S("ade","자몽에이드","Grapefruit Ade","ICE","16oz",
+      [["자몽청","60 ml"],["탄산수","200 ml"],["얼음","130 g"],["자몽 슬라이스","1 조각"]],
+      ["컵에 자몽청 60ml","얼음 130g","탄산수 200ml를 벽면을 타고 천천히","자몽 슬라이스 가니시"],
+      "탄산수를 세게 부으면 탄산이 날아간다. 얼음 벽을 타고 흘려 넣을 것."),
+    S("ade","청귤에이드","Green Tangerine Ade","ICE","16oz",
+      [["청귤청","55 ml"],["탄산수","200 ml"],["얼음","130 g"],["애플민트","1 장"]],
+      ["청귤청 55ml","얼음 130g","탄산수 200ml, 애플민트 가니시"],
+      "청귤은 산미가 강해 자몽보다 5ml 적게 쓴다."),
+    S("ade","레몬에이드","Lemonade","ICE","16oz",
+      [["레몬청","60 ml"],["탄산수","200 ml"],["얼음","130 g"],["레몬 슬라이스","1 조각"]],
+      ["레몬청 60ml, 얼음 130g, 탄산수 200ml","가볍게 1회만 저어 층을 살린다"],
+      "많이 저으면 탄산이 죽는다. 1회전이면 충분."),
+    S("tea","복숭아 아이스티","Peach Iced Tea","ICE","16oz",
+      [["아이스티 파우더","30 g"],["정수","250 ml"],["얼음","130 g"]],
+      ["셰이커에 파우더 30g + 정수 50ml를 먼저 녹인다","남은 물 200ml와 얼음을 넣고 10회 셰이크","컵에 얼음과 함께 붓는다"],
+      "파우더는 소량의 물에 먼저 풀어야 덩어리가 지지 않는다."),
+    S("tea","밀크티","Milk Tea","ICE","16oz",
+      [["홍차 원액","90 ml"],["우유","180 ml"],["설탕 시럽","15 ml"],["얼음","120 g"]],
+      ["홍차 원액 90ml에 시럽 15ml","얼음 120g, 우유 180ml","가볍게 저어 마무리"],
+      "원액은 찻잎 12g / 물 300ml, 5분 우림 기준으로 미리 만들어 둔다."),
+    S("tea","딸기라떼","Strawberry Latte","ICE","16oz",
+      [["딸기청","70 ml"],["우유","200 ml"],["얼음","120 g"]],
+      ["컵 바닥에 딸기청 70ml","얼음 120g","우유 200ml를 스푼에 받쳐 천천히 부어 층 분리"],
+      "층이 섞이면 안 된다. 우유는 얼음 위 스푼에 받쳐 흘려 넣을 것."),
+    S("tea","말차라떼","Matcha Latte","HOT","12oz",
+      [["말차 파우더","12 g"],["뜨거운 물","20 ml"],["스팀밀크","210 ml"]],
+      ["말차 12g을 체에 내려 덩어리 제거","70~80℃ 물 20ml로 차선을 W자로 저어 페이스트","스팀밀크 210ml를 부어 마무리"],
+      "끓는 물을 쓰면 쓴맛이 강해진다. 70~80℃가 적정.")
+  ];
+}
+
+function uid(){
+  const a = new Uint8Array(8);
+  (self.crypto||{}).getRandomValues ? crypto.getRandomValues(a) : a.forEach((_,i)=>a[i]=Math.floor(Math.random()*256));
+  return Array.from(a).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+/* ---------- 상태 ---------- */
+let data = Store.load();
+if(!data || !Array.isArray(data.drinks)){
+  data = {v:1, drinks:seed(), mastered:[], needReview:[]};
+  Store.save(data);
+}
+data.mastered = data.mastered || [];
+data.needReview = data.needReview || [];
+if(data.mode !== "blank") data.mode = "flip";
+if(["cream","dark","green"].indexOf(data.theme) < 0) data.theme = "cream";
+if(["as-is","upper","lower"].indexOf(data.enCase) < 0) data.enCase = "as-is";
+if(!Array.isArray(data.cats) || !data.cats.length){
+  data.cats = DEFAULT_CATS.map(c=>({id:c.id, label:c.label, emo:c.emo}));
+}
+if(!Array.isArray(data.shelf)) data.shelf = [];
+data.shelf.forEach(s=>{ if(!s.id) s.id = uid(); });
+if(!Array.isArray(data.memos)) data.memos = [];     // 예전 백업에는 없는 항목 — 빈 목록으로 시작
+data.memos.forEach(m=>{ if(!m.id) m.id = uid(); if(typeof m.text !== "string") m.text = ""; m.pin = !!m.pin; });
+data.drinks.forEach(d=>{
+  if(!Array.isArray(d.cups)) d.cups = d.cup ? [String(d.cup)] : [];
+  d.arch = !!d.arch;               // 보관한 레시피 — 학습과 목록에서 빠진다
+});
+
+/* ---------- 부재료 공용 목록 ----------
+   예전에는 부재료를 레시피 안에 하나씩 박아 넣었다. 같은 자몽청을 쓰는 메뉴가 다섯 개면
+   다섯 번 입력해야 했다. 이제는 부재료를 한 곳(data.subs)에 두고 레시피가 그것을
+   가리킨다(d.subRefs). 예전 데이터는 앱을 처음 열 때 한 번 옮겨진다. */
+function subSig(s){
+  return JSON.stringify([(s.ing||[]), (s.steps||[]), s.tip||"", s.place||"", s.dur||""]);
+}
+function uniqueSubName(list, nm){
+  const taken = new Set(list.map(x=>String(x.name||"").trim().toLowerCase()));
+  if(!taken.has(nm.toLowerCase())) return nm;
+  let n = 2;
+  while(taken.has((nm+" "+n).toLowerCase())) n++;
+  return nm+" "+n;
+}
+/* 이름과 내용이 같으면 하나로 합치고, 이름은 같은데 배합이 다르면 "자몽청 2"처럼 따로 남긴다 */
+function liftSubs(root){
+  if(!Array.isArray(root.subs)) root.subs = [];
+  const byKey = new Map();
+  root.subs.forEach(s=>byKey.set(String(s.name||"").trim().toLowerCase()+"|"+subSig(s), s.id));
+  let moved = 0, split = 0;
+  (root.drinks||[]).forEach(d=>{
+    const refs = Array.isArray(d.subRefs) ? d.subRefs.slice() : [];
+    const embedded = Array.isArray(d.subs) ? d.subs : [];
+    embedded.forEach(s=>{
+      const nm = String(s.name||"").trim();
+      if(!nm) return;
+      const key = nm.toLowerCase()+"|"+subSig(s);
+      let id = byKey.get(key);
+      if(!id){
+        const finalName = uniqueSubName(root.subs, nm);
+        if(finalName !== nm) split++;
+        id = (s.id && !root.subs.some(x=>x.id===s.id)) ? s.id : uid();
+        root.subs.push({id:id, name:finalName,
+          ing:(s.ing||[]).map(p=>[String(p[0]||""),String(p[1]||"")]),
+          steps:(s.steps||[]).map(String), tip:String(s.tip||""),
+          place:String(s.place||""), dur:String(s.dur||"")});
+        byKey.set(key, id);
+      }
+      if(refs.indexOf(id) < 0) refs.push(id);
+    });
+    if(embedded.length) moved += embedded.length;
+    d.subRefs = refs;
+    delete d.subs;
+  });
+  return {moved:moved, split:split};
+}
+const _lift = liftSubs(data);
+data.subs.forEach(s=>{
+  if(!s.id) s.id = uid();
+  if(typeof s.name !== "string") s.name = String(s.name||"");
+  if(!Array.isArray(s.ing)) s.ing = [];
+  if(!Array.isArray(s.steps)) s.steps = [];
+  if(typeof s.tip !== "string") s.tip = "";
+  if(typeof s.place !== "string") s.place = "";
+  if(typeof s.dur !== "string") s.dur = "";
+});
+const subById = id => data.subs.find(x=>x.id===id) || null;
+const subsOf  = d => (d.subRefs||[]).map(subById).filter(Boolean);
+const usesOf  = id => data.drinks.filter(d=>(d.subRefs||[]).indexOf(id)>=0);
+
+const state = {filter:"all", deck:[], idx:0, flipped:false, stat:{ok:0,again:0,total:0},
+               editingId:null, selMode:false, sel:new Set(), revealed:new Set(), discOpen:false,
+               editSubRefs:[], subEditId:null, subFrom:"edit", parentForm:null, cupSel:[], cupCustom:false,
+               listTab:"recipe", subPlace:"", shelfOpen:new Set()};
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+const persist = ()=>{ Store.save(data); };
+if(_lift.moved) persist();          // 부재료를 공용 목록으로 옮긴 결과를 바로 굳힌다
+/* 보관한 레시피는 학습·목록·진도율 어디에도 끼지 않는다. 지운 게 아니라 잠시 빼둔 것 */
+const liveDrinks = () => data.drinks.filter(d=>!d.arch);
+const archDrinks = () => data.drinks.filter(d=>d.arch);
+const drinksOf = c => c==="all" ? liveDrinks() : liveDrinks().filter(d=>d.cat===c);
+const has = (arr,id) => arr.indexOf(id)>=0;
+const add = (arr,id) => { if(!has(arr,id)) arr.push(id); };
+const rm  = (arr,id) => { const i=arr.indexOf(id); if(i>=0) arr.splice(i,1); };
+
+const MOUSE = {
+  morning:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo...o...","......opppppoooopppppo.oho..","......oppppwcwwcwppppoohoho.","......oppcwwwwwwwwcppo.oho..","......owcwwwwwwwwwwcwo..o...","......ocwwwwwwwwwwwwco......","....oowcwooowwwwooowcwoo....","...ocwwwohkhowwohkhowwwco...","....owcwohkhowwohkhowcwo....","...ocwwwohhhowwohhhowwwco...","..owcwwwohhhowwohhhowwwcwo..","...ocwwwwooowwwwooowwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwwwwwwwwwwwwwwcwo",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owppcwwwwwwwwwwwwwwwwcppwo.","ocwppcwwwwwwwwwwwwwwwwcppwco",".owppcwwwwwwwwwwwwwwwwcppwo.",".ocddcwwwwwwwwwwwwwwwwcddco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  day:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwooowwwwooowcwoo....","...ocwwwohhhowwohhhowwwco...","....owcwohkhowwohkhowcwo....","...ocwwwohkhowwohkhowwwco...","..owcwwwohhhowwohhhowwwcwo..","...ocwwwwooowwwwooowwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwwwwwwwwwwwwwwcwo",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owppcwwwwwwwwwwwwwwwwcppwo.","ocwppcwwwwwwwwwwwwwwwwcppwco",".owppcwwwwwwwwwwwwwwwwcppwo.",".ocddcwwwwwwwwwwwwwwwwcddco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  evening:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwwooowwwwooowwcwo....","...ocwwwohhhowwohhhowwwco...","..owcwwwohkhowwohkhowwwcwo..","...ocwwwwooowwwwooowwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwwwwwwwwwwwwwwcwo",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owppcwwwwwwwwwwwwwwwwcppwo.","ocwppcwwwwwwwwwwwwwwwwcppwco",".owppcwwwwwwwwwwwwwwwwcppwo.",".ocddcwwwwwwwwwwwwwwwwcddco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  night:[".........o........o.........","........opo......opo........",".......opppo....opppo...kkkk",".......oppppo..oppppo.....k.","......opppppoooopppppo...k..","......oppppwwwwwwppppo..kkkk","......oppcwwwwwwwwcppo......",".......owwwwwwwwwwwwo.......","......ocwwwwwwwwwwwwcokkkk..",".....owwwwwwwwwwwwwwwwo.k...","....ocwwwwwwwwwwwwwwwwck....","....owwwkwwwkwwkwwwkwwkkkk..","...ocwwwwkkkwwwwkkkwwwwco...","...owwwwwwwwwwwwwwwwwwwwo...","...ocwwwwwwwwwwwwwwwwwwco...","..oLwwwwwwwwwnnwwwwwwwwwLo..",".oLLcwwwwwwwwnnwwwwwwwwcLLo.",".oLwcwwwwwwwwwwwwwwwwwwcwLo.","oLLcwwwwwwwwwwwwwwwwwwwwcLLo",".oLlwcwwwwwwwwwwwwwwwwcwlLo.",".oLLccccwwwwccccwwwwccccLLo.","..oLLwccccccccccccccccwLLo..","...oLLcwccccwwwwccccwcLLo...","....ooLLppBBBBBBBBppLLoo....","...oBBBBppBBBBBBBBppBBBBo...",".ooBBBBBBBBBBBBBBBBBBBBBBoo.","oSSSSSSSSSSSSSSSSSSSSSSSSSSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo","oSbbbbbbbbbbbbbbbbbbbbbbbbSo",".oSSSSSSSSSSSSSSSSSSSSSSSSo.","oooSbbbbbbbbbbbbbbbbbbbbSooo","llllllllllllllllllllllllllll","LLLLLLLLLLLLLLLLLLLLLLLLLLLL","oooooooooooooooooooooooooooo"],
+  blink:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwkwwwkwwkwwwkwcwo....","...ocwwwwkkkwwwwkkkwwwwco...","..owcwwwwwwwwwwwwwwwwwwcwo..","...ocwwwwwwwwwwwwwwwwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwwwwwwwwwwwwwwcwo",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owppcwwwwwwwwwwwwwwwwcppwo.","ocwppcwwwwwwwwwwwwwwwwcppwco",".owppcwwwwwwwwwwwwwwwwcppwo.",".ocddcwwwwwwwwwwwwwwwwcddco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  eat1:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwooowwwwooowcwoo....","...ocwwwohhhowwohhhowwwco...","....owcwohkhowwohkhowcwo....","...ocwwwohkhowwohkhowwwco...","..owcwwwohhhowwohhhowwwcwo..","...ocwwwwooowwwwooowwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwYYYYwwwwwwwwcwo..",".oocwwwwwwYYYYYYwwwwwwwwcoo.","owcwwwwwwYYYjYYYYwwwwwwwwcwo",".ocwwwwwYYYYYYYYyYwwwwwwwco.",".owcwwwpYYYjYYYYyycppwwwcwo.","ocwwwwwpyYYYYYYYyycppwwwwwco",".owcwwwppyyyyyyyywcppwwwcwo.",".ocwwwwddcwwwwwwwwcddwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  eat2:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwwooowwwwooowwcwo....","...ocwwwohhhowwohhhowwwco...","..owcwwwohkhowwohkhowwwcwo..","..oocwwwwooowwwwooowwwwco...",".owwwcwwwwwwwnnwwwwwwwcwo...","owwccwwwwwwwwnnwwwwwwwwcco..","owwwcwwwwwwwwwwwwwwwwwwcwo..","owwcwwwwwwwwwwwwwwwwwwwwco..","owwwccwwwwwwwwwwwwwwwwccwo..",".oooccccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwYYYYwwwwwwwwwcwo",".ocwwwwwwwwYYYjYYwwwwwwwwco.",".owcwwwppcYYYYYYyYcppwwwcwo.","ocwwwwwppcYYjYYYyycppwwwwwco",".owcwwwppcwyyyyyywcppwwwcwo.",".ocwwwwddcwwwwwwwwcddwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  eat3:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwooowwwwooowcwoo....","...ocwwwohhhowwohhhowwwco...","....owcwohkhowwohkhowcwo....","...ocwwwohkhowwohkhowwwco...","..owcwwwohhhowwohhhowwwcwo..","...ocwwwwooowwwwooowwwwcoo..","...owcwwwwwwwnnwwwwwwwcwwwo.","..occwwwwwwwwnnwwwwwwwwccwwo","..owcwwwwwwwwwwwwwwwwwwcwwwo","..ocwwwwwwwwwwwwwwwwwwwwcwwo","..owccwwwwwwwwwwwwwwwwccwwwo","...occccwwwwccccwwwwccccooo.","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwYYYYwwwwwwwwwcwo",".ocwwwwwwwwYYYjYYwwwwwwwwco.",".owcwwwppcYYYYYYyYcppwwwcwo.","ocwwwwwppcYYjYYYyycppwwwwwco",".owcwwwppcwyyyyyywcppwwwcwo.",".ocwwwwddcwwwwwwwwcddwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  eat4:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwwooowwwwooowwcwo....","...ocwwwohhhowwohhhowwwco...","..owcwwwohkhowwohkhowwwcwo..","..oocwwwwooowwwwooowwwwco...",".owwwcwwwwwwwnnwwwwwwwcwo...","owwccwwwwwwwwnnwwwwwwwwcco..","owwwcwwwwwwwwwwwwwwwwwwcwo..","owwcwwwwwwwwwwwwwwwwwwwwco..","owwwccwwwwwwwwwwwwwwwwccwo..",".oooccccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwwwwwwwwwwwwwwcwo",".ocwwwwwwwwwYYwwwwwwwwwwwco.",".owcwwwppcwYYjYwwwcppwwwcwo.","ocwwwwwppcYYYYyywwcppwwwwwco",".owcwwwppcwyyyywwwcppwwwcwo.",".ocwwwwddcwwwwwwwwcddwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  eat5:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwkwwwkwwkwwwkwcwo....","...ocwwwwkkkwwwwkkkwwwwco...","..owcwwwwwwwwwwwwwwwwwwcwo..","...ocwwwwwwwwwwwwwwwwwwcoo..","...owcwwwwwwwnnwwwwwwwcwwwo.","..occwwwwwwwwnnwwwwwwwwccwwo","..owcwwwwwwwwwwwwwwwwwwcwwwo","..ocwwwwwwwwwwwwwwwwwwwwcwwo","..owccwwwwwwwwwwwwwwwwccwwwo","...occccwwwwccccwwwwccccooo.","...owccccccccccccccccccwo...","..ocwwwwccccwwwwccccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwYwwwwwwwwwwwwcoo.","owcwwwwwwwywwwwwwwwwwwwwwcwo",".ocwwwwwwwwwwwwwwywwwwwwwco.",".owcwwwppcwwwwwwwwcppwwwcwo.","ocwwwwwppcwwwwwwwwcppwwwwwco",".owcwwwppcwwwwwwwwcppwwwcwo.",".ocwwwwddcwwwwwwwwcddwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  sip1:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwooowwwwooowcwoo....","...ocwwwohhhowwohhhowwwco...","....owcwohkhowwohkhowcwo....","...ocwwwohkhowwohkhowwwco...","..owcwwwohhhowwohhhowwwcwo..","...ocwwwwooowwwwooowwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwcogggggggoccwwwwco..","..owcwwwwgnnnnnnngwwwwwcwo..",".oocwwwppgnnnnnnnggpwwwwcoo.","owcwwwwppgnnnnnnngggwwwwwcwo",".ocwwwwppgnnnnnnngggwwwwwco.",".owcwwwddgnnnnnnnggdwwwwcwo.","ocwwwwwwwgnnnnnnngwwwwwwwwco",".owcwwwwwgggggggggwwwwwwcwo.",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  sip2:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwwooowwwwooowwcwo....","...ocwwwohhhowwohhhowwwco...","..owcwwwohkhowwohkhowwwcwo..","...ocwwwwooowwwwooowwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwogggggggowwwwccwo..","...occccwgGGGGGGGgwwcccco...","...owccppgnnnnnnnggpcccwo...","..ocwwwppgnnnnnnngggwwwwco..","..owcwwppgnnnnnnngggwwwcwo..",".oocwwwddgnnnnnnnggdwwwwcoo.","owcwwwwwwgnnnnnnngwwwwwwwcwo",".ocwwwwwwgggggggggwwwwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","ocwwwwwwwwwwwwwwwwwwwwwwwwco",".owcwwwwwwwwwwwwwwwwwwwwcwo.",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  sip3:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwkwwwkwwkwwwkwcwo....","...ocwwwwkkkwwwwkkkwwwwco...","..owcwwwwwwwwwwwwwwwwwwcwo..","...ocwwwwwwwwwwwwwwwwwwco...","...owcwwwogggggggowwwwcwo...","..occwwwwgGGGGGGngwwwwwcco..","..owcwwppgGGGGGnnggpwwwcwo..","..ocwwwppgGGGnnnngggwwwwco..","..owccwppgGnnnnnngggwwccwo..","...occcddgnnnnnnnggdcccco...","...owccccgnnnnnnngcccccwo...","..ocwwwwcgggggggggccwwwwco..","..owcwwwwwwwwwwwwwwwwwwcwo..",".oocwwwwwwwwwwwwwwwwwwwwcoo.","owcwwwwwwwwwwwwwwwwwwwwwwcwo",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","ocwwwwwwwwwwwwwwwwwwwwwwwwco",".owcwwwwwwwwwwwwwwwwwwwwcwo.",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  sip4:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwwooowwwwooowwcwo....","...ocwwwohhhowwohhhowwwco...","..owcwwwohkhowwohkhowwwcwo..","...ocwwwwooowwwwooowwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccogggggggocccccwo...","..ocwwwwcgGGGGGGGgccwwwwco..","..owcwwppgGGGGGGGggpwwwcwo..",".oocwwwppgGGGGGGGgggwwwwcoo.","owcwwwwppgGGGGGGGgggwwwwwcwo",".ocwwwwddgnnnnnnnggdwwwwwco.",".owcwwwwwgnnnnnnngwwwwwwcwo.","ocwwwwwwwgggggggggwwwwwwwwco",".owcwwwwwwwwwwwwwwwwwwwwcwo.",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."],
+  sip5:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwkwwwkwwkwwwkwcwo....","...ocwwwwkkkwwwwkkkwwwwco...","..owcwwwwwwwwwwwwwwwwwwcwo..","...ocwwwwwwwwwwwwwwwwwwco...","...owcwwwwwwwnnwwwwwwwcwo...","..occwwwwwwwwnnwwwwwwwwcco..","..owcwwwwwwwwwwwwwwwwwwcwo..","..ocwwwwwwwwwwwwwwwwwwwwco..","..owccwwwwwwwwwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwcogggggggoccwwwwco..","..owcwwwwgGGGGGGGgwwwwwcwo..",".oocwwwppgGGGGGGGggpwwwwcoo.","owcwwwwppgGGGGGGGgggwwwwwcwo",".ocwwwwppgGGGGGGGgggwwwwwco.",".owcwwwddgGGGGGGGggdwwwwcwo.","ocwwwwwwwgGGGGGGGgwwwwwwwwco",".owcwwwwwgggggggggwwwwwwcwo.",".ocwwwwwwwwwwwwwwwwwwwwwwco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."]
+};
+const BELLY = {y0:29,
+  normal:[".owppcwwwwwwwwwwwwwwwwcppwo.",".ocddcwwwwwwwwwwwwwwwwcddco.",".owcwwwwwwwwwwwwwwwwwwwwcwo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo..."],
+  puff:[".owppcwwwwwwwwwwwwwwwwcppwo.",".ocddcwwwwwwwwwwwwwwwwcddco.","owcwwwwwwwwwwwwwwwwwwwwwwcwo",".oocwwwwwwwwwwwwwwwwwwwwcoo.","..occwwwwwwwwwwwwwwwwwwcco..","..occwwwwwwwwwwwwwwwwwwcco..","...occwwwwwwwwwwwwwwwwcco..."]
+};
+const MOUSE_PAL = {o:"#C4AE98", w:"#FCF7F1", c:"#EBDDCD", p:"#F5BEAC", d:"#DF9B88", n:"#78543A", k:"#261F1C", h:"#FFFFFF",
+                   Y:"#F7CE66", y:"#E2AF42", j:"#C69132",
+                   G:"#EEE7DC", g:"#C6B7A3",
+                   l:"#E2DBD0", L:"#CBC2B5", b:"#C5D4E9", B:"#DFE8F4", S:"#AABDD7"};
+/* 도트 맵을 가로로 이어붙여 SVG rect 로 (같은 색은 한 덩어리로 묶어 가볍게) */
+function mouseSVG(mood, puff){
+  let rows = MOUSE[mood] || MOUSE.day;
+  if(mood !== "night" && mood.indexOf("eat") !== 0 && mood.indexOf("sip") !== 0){
+    rows = rows.slice();
+    const belly = puff ? BELLY.puff : BELLY.normal; // 서 있을 땐 배만 한 겹 부푼다
+    for(let i=0;i<belly.length;i++) rows[BELLY.y0+i] = belly[i];
+  }
+  return rowsSVG(rows, false);
+}
+/* 도트 행 배열 → SVG. flip 이면 좌우 반전(달리는 방향 바꿀 때) */
+function rowsSVG(rows, flip){
+  const hh = rows.length, ww = rows[0].length;
+  let out = "";
+  for(let y=0; y<hh; y++){
+    const r = rows[y];
+    let x = 0;
+    while(x < ww){
+      const ch = r[x];
+      if(ch === "."){ x++; continue; }
+      let n = 1;
+      while(x+n < ww && r[x+n] === ch) n++;
+      const px = flip ? ww - x - n : x;
+      out += '<rect x="'+px+'" y="'+y+'" width="'+n+'" height="1" fill="'+MOUSE_PAL[ch]+'"/>';
+      x += n;
+    }
+  }
+  return '<svg viewBox="0 0 '+ww+' '+hh+'" shape-rendering="crispEdges" aria-hidden="true">'+out+'</svg>';
+}
+const RUN_SPR = {
+  s0:["...........oo...............","..........oppo..............",".........opdppo.ooo.........","........opdddpoopppo........","........opdddpooppppo.......","........opdddpopppppo.......","........opdddwwcppppo.......","......oowcdddwwwcwppo.......",".....ocwwwwdwwwwwwwco.......","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","....owcwwwwwwwwwwwwwwwwcwo..","....oppppwwwwwwwwwwwwwwwco..","...owppppcwwwwwwwwwwwwwwcwo.","...ocppppcwwwwwwwwwwwwcwwco.","...owddddwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","....oooocwwwwwwwwwppppoo....","...oppppowcwwwwwwwddddo.....","...oddddooocwwwwwwcooo......","....oooo...oooooooo........."],
+  s1:["............................","...........ooo..............","..........opppo..oo.........",".........opddppooppo........",".........opdddpoppppo.......",".........opdddpopppppo......","........oocdddwcpppppo......","......oowcwdddwwcwpppo......",".....ocwwwwddwwwwwwcpo......","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","....owcwwwwwwwwwwwwwwwwcwo..","....oppppwwwwwwwwwwwwwwwco..","...owppppcwwwwwwwwwwwwwwcwo.","...ocppppcwwwwwwwwwwwwcwwco.","...owddddwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......oocwwwwwwwwwwwwcoo....",".....oppppcwwwwwwppppo......",".....oddddocwwwwwddddo......","......oooo.oooooooooo......."],
+  s2:["............................","............................","...........oooo.............","..........opddpo..oo........","..........opddpo.oppo.......",".........opddddpoppppo......","........oocddddcopppppo.....","......oowcwwdddwcwppppo.....",".....ocwwwwwddwwwwwcppo.....","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","....owcwwwwwwwwwwwwwwwwcwo..","...oppppwwwwwwwwwwwwwwwwco..","...oppppcwwwwwwwwwwwwwwwcwo.","...oppppcwwwwwwwwwwwwwcwwco.","...oddddwwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......oocwwwwwwppppwwcoo....",".......oppppwwwddddcwo......",".......oddddwwwwwwcoo.......","........ooooooooooo........."],
+  s3:["...........oo...............","..........oppo..............",".........opdppo.ooo.........","........opdddpoopppo........","........opdddpooppppo.......","........opdddpopppppo.......","........opdddwwcppppo.......","......oowcdddwwwcwppo.......",".....ocwwwwdwwwwwwwco.......","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","...oowcwwwwwwwwwwwwwwwwcwo..","..oppppwwwwwwwwwwwwwwwwwco..","..oppppcwwwwwwwwwwwwwwwwcwo.","..oppppcwwwwwwwwwwwwwwcwwco.","..oddddwwwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......oocwwwwwwwwwwwwcoo....","........owppppppppwcwo......",".........oddddddddcoo.......","..........ooooooooo........."],
+  s4:["............................","...........ooo..............","..........opppo..oo.........",".........opddppooppo........",".........opdddpoppppo.......",".........opdddpopppppo......","........oocdddwcpppppo......","......oowcwdddwwcwpppo......",".....ocwwwwddwwwwwwcpo......","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","...oowcwwwwwwwwwwwwwwwwcwo..","..oppppwwwwwwwwwwwwwwwwwco..","..oppppcwwwwwwwwwwwwwwwwcwo.","..oppppcwwwwwwwwwwwwwwcwwco.","..oddddwwwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......ooppppwwwwwwwwwcoo....",".......oddddwwwwppppwo......","........ooocwwwwddddo.......","...........ooooooooo........"],
+  s5:["............................","............................","...........oooo.............","..........opddpo..oo........","..........opddpo.oppo.......",".........opddddpoppppo......","........oocddddcopppppo.....","......oowcwwdddwcwppppo.....",".....ocwwwwwddwwwwwcppo.....","....owcwwwwcwwwcwwwcwo......",".....ooowwwwwcwwwcwwco......","....ohhhowwwwwwwwwwwcwo.....","...oohkhowwwwwwwwwwwwco.....","..owohkhowwwwwwwwwwwwcwo....",".oocohhhowwwwwwwwwwwwwco....","onncwooowwwwwwwwwwwwwcwo....","onnwwwwwwwwwwwwwwwwwwwco....",".owcwwwwwwwwwwwwwwwwwcwo....",".ocwwwwwwwwwwwwwwwwwwwwco...",".owcwwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwco...","...occwwwwwwwcwwcwwwwcwo....","...occccccccccwwwwwwwcco....","....oowcwcwcwwwwwwwwwwcwo...",".....ocwwcwwwwwwwwcwwwwco...","....owcwwwwwwwwwwwwwwwwcwo..","...oppppwwwwwwwwwwwwwwwwco..","...oppppcwwwwwwwwwwwwwwwcwo.","...oppppcwwwwwwwwwwwwwcwwco.","...oddddwwwwwwwwwwwwwwwwcwo.","...ocwwwwwwwwwwwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwwcwo.","....ocwwwwwwwwwwwwwwwwwwco..","....owcwwwwwwwwcwwwwcwwcwo..",".....ocwwwwwwwwccwwwwwcco...",".....owcwwwwwwwwwccccccwo...","......oocwwwwwwwwwppppoo....",".....oppppcwwwwwwwddddo.....",".....oddddocwwwwwwcooo......","......oooo.oooooooo........."],
+  qf:[".......o.........o..........","......opo.......opo.........",".....opppo.....opppo........",".....oppppo...oppppo........","....opppppoo.oopppppo.......","....oppppwcwowcwppppo.......","....oppcwwwwwwwwwcppo.......","....owcwwwwwwwwwwwcwo.......","....ocwwwwwwwwwwwwwco.......","....owcwwwwwwwwwwwwcwo......","...ocoowwwwwwooowwwwwco.....","...oohhowwwwohhhowwwwcwo....","..ocokhowwwwohkhowwwwwco....","..owokhowwwwohkhowwwwcwo....","..ocohhowwwwohhhowwwwwco....","..owcoowwwwwwooowwwwwcwo....","..ocwwwwnnwwwwwwwwwwwwco....","..owcwwwnwwwwwwwwwwwwwcwo...","..ocwwwwwwwwwwwwwwwwwwwco...","..owcwwwwwwwwwwwwwwwwwcwo...","..occwwwwwwwwwwwcwwwwwco....","...owcccwwwwwcccwwwwwcwo....","....ocwwcccccwwwwwwwwco.....",".....owcwwwwwwwwwwwwwcwo....","....ocwcwcwwwwwcwcwcwwwco...","...oowcwwwwcwcwwwwwwwwwcwo..","..oppppwwwwwcwwwwwwwwwpppo..","..oppppcwwwwwwwwwwwwwcpppo..","..oppppcwwcwwwwwwwwwwwpppco.","..oddddwwwwwwwwwwwwwwwdddwo.","...ocwwwwwwwwwcwwwwwwwwwwco.","...owcwwwwwwwwwwwwwwwwwcwo..","...ocwwwwcwwwwwwwwwwwwwwco..","....owcwwwwwwwwwcwwwwwwcwo..","....ocwwwwwwwwwwwwwwwwwco...",".....owcwwwwwwwwwwwwwcwo....","......ocwwwwwwwwppppwco.....",".....oppppcwwwwwddddwo......",".....oddddocwwwwwcooo.......","......oooo.ooooooo.........."],
+  qb:["..........o.......o.........",".........opo.....opo........","........opppo...opppo.......","........oppppo.oppppo.......",".......opppppooopppppo......",".......oppppwcwcwppppo......",".......oppcwwwwwwwcppo......",".......owcwwwwwwwwwcwo......","......oocwwwwwwwwwwwco......",".....owcwwwwwwwwwwwwcwo.....","....ocwwwwwwwwwwwwwwwwco....","...owcwwwcwwwwcwwwwcwcwo....","...ocwwwcwwwwcwwwwcwwwwco...","...owcwwwwwwcwwwwcwwwwcwo...","...ocwwwwwwcwwwwcwwwwwwco...","...owcwwwwcwwwwcwwwwwwcwo...","...ocwwwwwwwwwwwwwwwwwwco...","..occwwwwwwwwwwwwwwwwwcwo...","..ocwwwwwwwwwwwcwwwwwwwco...","..owcwwwwwwwcwwwwwwwwwcwo...","...ocwwcwwwwwwwwwwwwwwwco...","...owcwwwwwwcwwwwwwwwcwo....","....ocwwwwwwwwwwcwwwwco.....",".....owcwwwwcwwwwwwwwcwo....","....ocwwwwcwwwwwwwwwwwwco...","...owcwwwwwwcwwwwwwwwwcwoo..","...ocwwwwwwwwwwwwwwwcwwpppo.","...owccwwwwwcwwwwwwwwwcpppo.","..ocwwwwwwwwwwwwwwwwwwwpppo.","..owcwwwwwwwcwwwwwwwwwwdddo.","..ocwwwwwwwwwwwwwwwwwwwwco..","...owcwwwwwwcwwwwwwwwwwcwo..","...ocwwwwwwwwwwwwwwwwwwwco..","...owcwwwwwwcwwcwwwwwwcwo...","....occcwwccwwwccwwwwccco...",".....owcccwwwwwwwcccccwo....","......ocwwwwwwwwwppppco.....","......oppppwwwwwwddddo......","......oddddcwwwwwcooo.......",".......ooooooooooo.........."],
+  bk:[".........o........o.........","........opo......opo........",".......opppo....opppo.......",".......oppppo..oppppo.......","......opppppoooopppppo......","......oppppwcwwcwppppo......","......oppcwwwwwwwwcppo......","......owcwwwwwwwwwwcwo......","......ocwwwwwwwwwwwwco......","....oowcwwwwwwwwwwwwcwoo....","...ocwwwwwwwwwwwwwwwwwwco...","....owcwwcwwwwcwwwwwwcwo....","...ocwwwwwwwwcwwwwcwwwwco...","..owcwwwwwwwcwwwwcwwwwwcwo..","...ocwwwwwwcwwwwcwwwwwwco...","...owcwwwwcwwwwcwwwwwwcwo...","..occwwwwwwwwwwwwwwwwwwcco..","..owcwwwwwwwwcwwwwwwwwwcwo..","..ocwwwwwwwwwwcwwwwwwwwwco..","..owccwwwwwwwcwwwwwwwwccwo..","...occccwwwwccccwwwwcccco...","...owccccccccccccccccccwo...","..ocwwwwccccwwcwccccwwwwco..","..owcwwwwwwwwcwwwwwwwwwcwo..",".oocwwwwwwwwwwcwwwwwwwwwcoo.","owcwwwwwwwwwwcwwwwwwwwwwwcwo",".ocwwwwwwwwwwwcwwwwwwwwwwco.",".owwwcwwwwwwwcwwwwwwwwcwwwo.","ocwwwcwwwwwwwwcwwwwwwwcwwwco",".owwwcwwwwwwwcwwwwwwwwcwwwo.",".ocwwcwwwwwwwwcwwwwwwwcwwco.",".owcwwwwwwwwwcwwwwwwwwwwcwo.","..ocwwwwwwwwwwcwwwwwwwwwco..","...occwwwwwwwwwwwwwwwwcco...","..occcwwwwwwwwwwwwwwwwccco..","...ooccwwwwwwwwwwwwwwccoo...","....ooccwwwwwwwwwwwwccoo....","..oopppppcwwwwwwwwcpppppoo..",".oddpppppccccccccccpppppddo.","..ooooooooooccccoooooooooo.."]
+};
+
+/* =========================================================
+   비상 달리기 — 오늘 폐기가 있으면 홈에서 두 바퀴 돌고 제자리로.
+   8방향(옆4포즈·사선·정면·뒤) 스프라이트를 타원 궤도로 돌린다.
+   그림자는 바닥에 붙어 있고 몸만 뜬다. 방향 전환은 공중 프레임에서만.
+   ========================================================= */
+/* 머리 위 경광등 — 스프라이트와 같은 도트 문법, 켜짐엔 빛살 */
+const SIREN = {
+  on: ["y.....y.....y",
+       ".y....y....y.",
+       "......R......",
+       "....rRCRr....",
+       "....rRRRr....",
+       ".....ggg....."],
+  off:[".............",
+       ".............",
+       ".............",
+       "....ddddd....",
+       "....ddddd....",
+       ".....ggg....."]
+};
+const SIREN_PAL = {r:"#CE3C2E", R:"#E85C48", C:"#FFD6C8", d:"#96322A", g:"#786C64", y:"#E85C48"};
+function sirenSVG(lit){
+  const rows = lit ? SIREN.on : SIREN.off;
+  let out = "";
+  for(let y=0; y<rows.length; y++){
+    for(let x=0; x<rows[y].length; x++){
+      const ch = rows[y][x];
+      if(ch !== ".") out += '<rect x="'+x+'" y="'+y+'" width="1" height="1" fill="'+SIREN_PAL[ch]+'"/>';
+    }
+  }
+  return '<svg viewBox="0 0 13 6" shape-rendering="crispEdges" aria-hidden="true">'+out+'</svg>';
+}
+
+let panicT = null, panicDay = null;
+function stopPanic(){
+  if(panicT){ clearInterval(panicT); panicT = null; }
+  const L = $("#panicLayer"); if(L) L.classList.remove("on");
+  const m = $("#mascot"); if(m) m.style.visibility = "";
+  const b = $("#mbubble"); if(b) b.style.opacity = "";
+}
+function runPanic(laps){
+  if(panicT || reduceMotion()) return;
+  if(!$("#s-home").classList.contains("active")) return;
+  const L = $("#panicLayer"), R = $("#panicRun"), S = $("#panicSh"), B = $("#panicBell");
+  let panicLit = null;
+  const W = $("#s-home").clientWidth || 390;
+  const cx = W/2, cy = 168;
+  const rx = Math.min(105, cx - 66), ry = 56;   // 몸(56x80)이 겹치지 않는 최소선 위
+  const FR = 48, total = FR * (laps || 2);
+  let i = 0, prevK = null;
+  stopSip();
+  $("#mascot").style.visibility = "hidden";
+  $("#mbubble").style.opacity = "0";        // 주인 없는 말풍선만 떠 있지 않게
+  L.classList.add("on");
+  panicT = setInterval(()=>{
+    if(i >= total || !$("#s-home").classList.contains("active")){
+      const done = $("#s-home").classList.contains("active");
+      stopPanic(); drawMascot();
+      if(done) sayBubble($("#mbubble").textContent);  // 돌아와서 다시 말한다
+      return;
+    }
+    const t = 2*Math.PI*(i % FR)/FR;             // 꼭대기에서 시계 방향
+    const a = t - Math.PI/2;
+    const mx = cx + rx*Math.cos(a), my = cy + ry*Math.sin(a);
+    let k = Math.floor((t + Math.PI/8)/(Math.PI/4)) % 8;
+    const ph = i % 6;                            // 6포즈: 내딛기→밀기→공중→교차→밀기→공중
+    const air = ph === 2 || ph === 5;
+    if(prevK !== null && !air && k !== prevK) k = prevK;  // 공중에서만 몸을 튼다
+    prevK = k;
+    const run = RUN_SPR["s"+ph];
+    const spec = [
+      [run, true],        [RUN_SPR.qf, true],  [MOUSE.day, false], [RUN_SPR.qf, false],
+      [run, false],       [RUN_SPR.qb, false], [RUN_SPR.bk, false],[RUN_SPR.qb, true]
+    ][k];
+    const hop = [0,2,6,0,2,6][ph];               // 밀기에서 반쯤, 공중에서 다 뜨는 포물선
+    R.innerHTML = rowsSVG(spec[0], spec[1]);
+    const ry2 = Math.round(my-58)-hop;
+    R.style.transform = "translate3d("+Math.round(mx-28)+"px,"+ry2+"px,0)";
+    const lit = (Math.floor(i/3) % 2) === 0;
+    if(lit !== panicLit){ panicLit = lit; B.innerHTML = sirenSVG(lit); }
+    B.style.transform = "translate3d("+Math.round(mx-13)+"px,"+(ry2-8)+"px,0)";
+    const fy = Math.round(my + 22);
+    S.style.transform = "translate3d("+Math.round(mx-17)+"px,"+fy+"px,0) scale("+(1 - hop*0.035).toFixed(2)+")";
+    S.style.opacity = String(0.8 - hop*0.05);
+    i++;
+  }, 42);                                    // 한 바퀴 약 2초 — 다급하게
+}
+
+/* 빈 화면용 쥐돌이 — 글자만 있던 자리를 채운다.
+   밤이라도 자는 모습 대신 깨어 있는 얼굴을 쓴다(안내하는 자리라서). */
+/* k 는 도트 한 칸을 몇 px 로 그릴지. 정수만 받는다 —
+   28x40 격자를 소수 배율로 늘리면 칸 경계가 반 px 에 걸려 그림이 지저분해진다. */
+function emptyMouseMood(){
+  const m = moodOf(new Date().getHours());
+  return m === "night" ? "day" : m;
+}
+function emptyMouse(k){
+  const s = k || 2;
+  return `<div class="mz" style="width:${28*s}px;height:${40*s}px">`
+       + mouseSVG(emptyMouseMood(), false) + `</div>`;
+}
+
+/* 빈 화면 쥐돌이도 눈을 깜빡인다. 눈만 바뀌므로 몸은 그대로다.
+   다만 화면이 움직이는 중이거나 검색창에 타이핑 중일 때는 쉰다 —
+   그때 다시 그리면 도트가 튀어 보이고, 글 쓰는 옆에서 깜빡이면 거슬린다. */
+let emptyBlinkTimer = null;
+function emptyMice(){
+  return [...document.querySelectorAll("#listPane .mz")]
+    .filter(el => el.getBoundingClientRect().width > 0);   // 숨은 탭은 건너뛴다
+}
+function emptyBlinkOk(){
+  if(reduceMotion() || document.hidden) return false;
+  if(!$("#s-list").classList.contains("active")) return false;
+  if(segS.busy || segS.on) return false;              // 미는 중에는 손대지 않는다
+  if(document.activeElement === $("#q")) return false; // 검색창에 커서가 있을 때도
+  return true;
+}
+function scheduleEmptyBlink(){
+  clearTimeout(emptyBlinkTimer);
+  emptyBlinkTimer = setTimeout(()=>{
+    if(emptyBlinkOk()){
+      const els = emptyMice();
+      if(els.length){
+        const shut = mouseSVG("blink", false), open = mouseSVG(emptyMouseMood(), false);
+        els.forEach(el => el.innerHTML = shut);
+        setTimeout(()=>{ emptyMice().forEach(el => el.innerHTML = open); }, 140);
+      }
+    }
+    scheduleEmptyBlink();
+  }, 3600 + Math.random()*4600);                       // 홈보다 느긋하게
+}
+scheduleEmptyBlink();
+/* 마스코트: 눈 깜빡임만. 몸은 움직이지 않는다.
+   배를 부풀리는 숨쉬기도 넣어봤지만, 도트 그림이라 한 칸만 움직여도
+   덩어리가 들썩이는 것처럼 보여서 뺐다. */
+const mascot = {blink:false, puff:false};
+let blinkTimer = null;
+function currentMood(){ return moodOf(new Date().getHours()); }
+function reduceMotion(){
+  return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+}
+function drawMascot(){
+  const el = $("#mascot");
+  if(!el) return;
+  if(sipping) return;                       // 커피 마시는 중엔 건드리지 않는다
+  el.innerHTML = mouseSVG(mascot.blink ? "blink" : currentMood(), mascot.puff);
+}
+
+/* 아침에 커피 한 잔 — 한 바퀴만 돌고 원래 모습으로 */
+const SIP_SEQ = ["sip1","sip2","sip3","sip4","sip5"];
+let sipT = null, sipping = false, sipDoneToday = false;
+function stopSip(){
+  if(sipT){ clearInterval(sipT); sipT = null; }
+  sipping = false;
+}
+function playSip(){
+  const el = $("#mascot");
+  if(!el || reduceMotion()) return;
+  if(currentMood() !== "morning") return;
+  stopSip();
+  clearTimeout(blinkTimer);
+  sipping = true;
+  let i = 0;
+  el.innerHTML = mouseSVG(SIP_SEQ[0]);
+  sipT = setInterval(()=>{
+    i++;
+    if(i >= SIP_SEQ.length || !mascotAwake()){
+      stopSip(); drawMascot(); scheduleBlink(); return;
+    }
+    el.innerHTML = mouseSVG(SIP_SEQ[i]);
+  }, 420);
+}
+function mascotAwake(){
+  return $("#s-home").classList.contains("active") && !document.hidden;
+}
+function scheduleBlink(){
+  clearTimeout(blinkTimer);
+  if(reduceMotion()) return;
+  blinkTimer = setTimeout(()=>{
+    if(mascotAwake() && currentMood() !== "night"){
+      const close = ()=>{ mascot.blink = true; drawMascot(); };
+      const open  = ()=>{ mascot.blink = false; drawMascot(); };
+      close();
+      if(Math.random() < 0.25){        // 가끔 두 번
+        setTimeout(open, 120);
+        setTimeout(close, 260);
+        setTimeout(open, 380);
+      } else {
+        setTimeout(open, 140);
+      }
+    }
+    scheduleBlink();
+  }, 2600 + Math.random()*4200);
+}
+
+function moodOf(hour){
+  if(hour < 5) return "night";
+  if(hour < 11) return "morning";
+  if(hour < 18) return "day";
+  if(hour < 22) return "evening";
+  return "night";
+}
+
+/* =========================================================
+   접속 시각 · 인사 · 응원 (전부 기기 시계 기준, 서버 없음)
+   ========================================================= */
+function ymd(dt){
+  return dt.getFullYear() + "-" + String(dt.getMonth()+1).padStart(2,"0") + "-" + String(dt.getDate()).padStart(2,"0");
+}
+function dayGap(a, b){  // "YYYY-MM-DD" 사이의 날짜 차이
+  const pa = a.split("-").map(Number), pb = b.split("-").map(Number);
+  const da = new Date(pa[0], pa[1]-1, pa[2]), db = new Date(pb[0], pb[1]-1, pb[2]);
+  return Math.round((db - da) / 86400000);
+}
+const DOW = ["일","월","화","수","목","금","토"];
+
+/* 오늘 처음 열었는지 판단하고 연속 접속일을 갱신한다 */
+function touchVisit(now){
+  const today = ymd(now);
+  const v = data.visit || {};
+  let kind = "same", gap = 0;
+  if(!v.last){
+    kind = "first"; v.streak = 1; v.count = 1; v.first = today;
+  } else if(v.last === today){
+    kind = "same";
+  } else {
+    gap = dayGap(v.last, today);
+    v.count = (v.count || 0) + 1;
+    if(gap === 1){ v.streak = (v.streak || 0) + 1; kind = "next"; }
+    else { v.streak = 1; kind = "back"; }
+  }
+  v.last = today;
+  data.visit = v;
+  persist();
+  return {kind:kind, gap:gap, streak:v.streak || 1, count:v.count || 1};
+}
+
+function timeGreet(h){
+  if(h < 5)  return "밤이 깊었어요";
+  if(h < 11) return "좋은 아침이에요";
+  if(h < 14) return "점심때가 됐네요";
+  if(h < 18) return "오후도 힘내요";
+  if(h < 22) return "오늘도 수고했어요";
+  return "하루 마무리 중이네요";
+}
+
+const CHEERS = [
+  "오늘 하루도 화이팅이츄!",
+  "한 잔씩 천천히 하면 다 외워지츄",
+  "어제보다 한 개만 더! 그거면 충분하츄",
+  "손이 기억할 때까지 조금씩 해보자츄",
+  "레시피는 반복이 답이츄",
+  "틀린 건 실력이 느는 중이라는 뜻이츄",
+  "5분만 보고 가도 괜찮아츄",
+  "바쁜데 열어본 것만으로 잘하고 있는 거츄",
+  "천천히 가도 멈추지만 않으면 되츄",
+  "오늘의 한 잔도 잘 부탁해츄",
+  "컨디션 챙겨가면서 하자츄",
+  "완벽하지 않아도 돼, 익숙해지면 되는 거츄"
+];
+/* 쥐돌이가 지금 상황을 보고 말한다.
+   앱이 이미 들고 있는 값만 쓴다 — 오늘 폐기 개수·복습 목록·외운 비율·연속 일수·마지막 방문.
+
+   두 갈래로 나눈다.
+   · 급한 말(hard) — 지금 당장 해야 할 일. 있으면 무조건 이걸 말한다.
+   · 그 외(soft)   — 해당되는 것들을 모아 날짜로 하나 고른다.
+   폐기 같은 건 등록해두면 매일 걸리기 때문에, 전부 우선순위로 두면
+   말풍선이 1년 내내 같은 문장만 반복하게 된다. 오전에만 급한 말로 올린다. */
+function situationCheer(now, streak, v){
+  const live  = liveDrinks();
+  const total = live.length;
+  const done  = live.filter(d=>has(data.mastered,d.id)).length;
+  const rev   = live.filter(d=>has(data.needReview, d.id)).length;
+  const hour  = now.getHours();
+
+  let kill = 0;
+  try{ kill = tagGroups().reduce((n,g)=>n+g.items.length, 0); }catch(e){}
+
+  /* ── 급한 말 ── */
+  if(total === 0)
+    return {ico:"📝", msg:"레시피가 아직 없츄. 한 개만 넣어보면 바로 시작이츄"};
+  if(kill > 0 && hour < 14)                       // 오픈·미들 시간대에만
+    return {ico:"🗑️", msg:"오늘 버릴 게 " + kill + "개 있츄. 개봉관리 먼저 보고 가자츄"};
+  if(rev >= 5)
+    return {ico:"🔁", msg:"다시 볼 메뉴가 " + rev + "개나 쌓였츄. 오늘 좀 덜어내자츄"};
+  if(done === 0)
+    return {ico:"🥤", msg:"첫 한 잔부터 외워보자츄. " + total + "개가 기다리고 있츄"};
+  if(done === total)
+    return {ico:"🏆", msg:"전부 외웠츄! 가끔 한 바퀴만 돌려주면 안 까먹츄"};
+
+  /* ── 해당되면 후보에 넣고 날짜로 고르는 말 ── */
+  const pool = [];
+  if(rev >= 1)
+    pool.push({ico:"🔁", msg:"다시 볼래요 해둔 게 " + rev + "개 있츄. 이것만 보고 가도 되츄"});
+  if(kill > 0)
+    pool.push({ico:"🗑️", msg:"오늘 폐기 " + kill + "개, 마감 전에 확인했츄?"});
+  if(total >= 5 && done / total >= 0.8)
+    pool.push({ico:"🎯", msg:(total - done) + "개만 더 하면 끝이츄. 거의 다 왔츄"});
+  if(v && v.kind === "back" && v.gap >= 3)
+    pool.push({ico:"👋", msg:v.gap + "일 만이츄! 가볍게 다섯 장만 넘겨보자츄"});
+  if(streak >= 7)
+    pool.push({ico:"🔥", msg:streak + "일 연속이라니! 이 정도면 습관이 된 거츄"});
+  else if(streak >= 3)
+    pool.push({ico:"🔥", msg:streak + "일 연속이야, 잘하고 있츄!"});
+
+  const seed = Math.floor((now - new Date(now.getFullYear(),0,0)) / 86400000);
+  pool.push({ico:"☕️", msg:CHEERS[seed % CHEERS.length]});   // 늘 하나는 평범한 응원
+  return pool[seed % pool.length];
+}
+function cheerOf(now, streak, v){
+  return situationCheer(now, streak, v);
+}
+
+let VISIT = null;   // 앱을 연 순간 한 번만 계산
+function initVisit(){
+  const now = new Date();
+  const v = touchVisit(now);
+  VISIT = {info:v, now:now};
+}
+function renderGreeting(){
+  if(!VISIT) return;
+  const now = new Date();
+  const v = VISIT.info;
+  const base = timeGreet(now.getHours());
+  let title = base;
+  if(v.kind === "first") title = "처음 오셨네요!";
+  else if(v.kind === "back" && v.gap >= 2) title = v.gap + "일 만이에요!";
+
+  const dateTxt = (now.getMonth()+1) + "월 " + now.getDate() + "일 " + DOW[now.getDay()] + "요일";
+  // 날짜는 윗줄, 앱 소개는 아랫줄로 나눈다 (한 줄에 담으면 어중간하게 접힌다)
+  const line1 = dateTxt + (v.streak >= 2 ? " · " + v.streak + "일 연속 접속 중" : "");
+  const line2 = (v.kind === "first") ? "암기쥐 · 카페 음료 레시피 외우기"
+                                     : "카페 음료 레시피 외우기";
+
+  $("#greetT").textContent = title;
+  $("#greetP").innerHTML = esc(line1) + "<br>" + esc(line2);
+
+  const c = cheerOf(now, v.streak, v);
+  $("#mbubble").innerHTML = `${c.ico} ${esc(c.msg)}`;
+  drawMascot();
+  scheduleBlink();
+
+  /* 오늘 폐기가 있으면 하루 한 번 비상 달리기. 이게 커피보다 급하다 */
+  let kill = 0;
+  try{ kill = tagGroups().reduce((n2,g)=>n2+g.items.length, 0); }catch(e){}
+  const todayKey = ymd(now);
+  if(kill > 0 && panicDay !== todayKey && !reduceMotion()){
+    panicDay = todayKey;
+    sayBubble("오늘 버릴 게 " + kill + "개 있츄! 비상이츄!");
+    setTimeout(()=>runPanic(2), 700);
+    return;                                 // 이 방문의 커피 모션은 건너뛴다
+  }
+  if(!sipDoneToday && currentMood() === "morning"){
+    sipDoneToday = true;
+    setTimeout(playSip, 600);              // 화면이 자리잡은 뒤에
+  }
+}
+
+/* ---------- 토스트 / 확인 모달 ---------- */
+let toastT;
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove("on"), 2200);
+}
+let onYes = null;
+function confirmBox(title, msg, yesLabel, cb){
+  $("#dlgT").textContent = title; $("#dlgM").textContent = msg;
+  $("#dlgYes").textContent = yesLabel || "확인"; onYes = cb; $("#dlg").classList.add("on");
+}
+$("#dlgNo").addEventListener("click", ()=>{ $("#dlg").classList.remove("on"); onYes=null; });
+$("#dlgYes").addEventListener("click", ()=>{ $("#dlg").classList.remove("on"); if(onYes){ const f=onYes; onYes=null; f(); } });
+
+/* ---------- 화면 전환 ---------- */
+function go(name){
+  if(name !== "result") stopEat();
+  if(name !== "home"){ stopSip(); stopPanic(); }
+  if(name !== "list" && state.selMode) exitSel();
+  document.querySelectorAll(".screen").forEach(el=>el.classList.remove("active"));
+  $("#s-"+name).classList.add("active");
+  const showTabs = ["home","list","set"].indexOf(name)>=0;
+  $("#tabs").classList.toggle("hide", !showTabs);
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.dataset.go===name));
+  if(name==="home") renderHome();
+  if(name==="list") renderList();
+  if(name==="arch") renderArch();
+  if(name==="set") renderSettings();
+}
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click", ()=>{ t.dataset.go==="study" ? openModeSheet() : go(t.dataset.go); });
+});
+
+/* ---------- 홈 ---------- */
+function renderHome(){
+  renderGreeting();
+  const items = [["all","전체"]].concat(data.cats.map(c=>[c.id, c.emo + " " + c.label]));
+  $("#chips").innerHTML = items.map(([k,l])=>{
+    const n = drinksOf(k).length;
+    return `<button class="chip ${state.filter===k?"on":""}" data-cat="${k}">${esc(l)} ${n}</button>`;
+  }).join("");
+  document.querySelectorAll("#chips .chip").forEach(c=>c.addEventListener("click",()=>{ state.filter=c.dataset.cat; renderHome(); }));
+
+  const pool = drinksOf(state.filter);
+  $("#deckCount").textContent = pool.length + "개 메뉴";
+  $("#startBtn").disabled = pool.length===0;
+
+  const live = liveDrinks();
+  const total = live.length, done = live.filter(d=>has(data.mastered,d.id)).length;
+  const pct = total ? Math.round(done/total*100) : 0;
+  const C = 2*Math.PI*37;
+  $("#ringFill").style.strokeDashoffset = C - C*pct/100;
+  $("#ringPct").textContent = pct + "%";
+  const nArch = data.drinks.length - total;
+  $("#heroTitle").textContent = total===0 ? (nArch ? "모두 보관해 두셨어요" : "레시피를 추가해 주세요")
+    : (done===0 ? "아직 외운 메뉴가 없어요" : `${total}개 중 ${done}개를 외웠어요`);
+  $("#heroSub").textContent = total===0 ? (nArch
+      ? "레시피 탭의 보관함에서 되돌리면 다시 학습할 수 있어요."
+      : "레시피 탭의 + 버튼으로 우리 매장 레시피를 넣어보세요.")
+    : (done===0 ? "앞면엔 메뉴 이름, 뒷면엔 재료와 용량이 있어요."
+    : (done===total ? "전체 메뉴를 마스터했어요. 가끔 복습해서 감을 유지하세요." : "남은 메뉴도 이어서 학습해볼까요?"));
+
+  /* 안심 문구는 초반 5회까지만. 저장이 막힌 경고는 항상 띄운다 */
+  const visits = (data.visit && data.visit.count) || 1;
+  $("#storeBanner").innerHTML = !Store.available
+    ? `<div class="banner warn"><span>⚠️</span><div><b>지금은 저장이 안 되는 상태예요.</b><br>앱을 닫으면 기록이 사라집니다. 설정 탭의 안내를 확인해 주세요.</div></div>`
+    : (!isStandalone()
+      /* 사파리 탭으로 쓰면 저장 데이터가 지워질 위험이 훨씬 크다.
+         차이를 모르는 사람이 대부분이라 홈 화면에 넣을 때까지 계속 알린다 */
+      ? `<div class="banner warn"><span>📲</span><div><b>홈 화면에 추가해서 써주세요.</b><br>
+           사파리 탭으로만 쓰면 한동안 안 열었을 때 레시피가 지워질 수 있어요.
+           아래쪽 <b>공유</b> 버튼을 누르고 <b>홈 화면에 추가</b>를 고르면 됩니다.</div></div>`
+      : (visits <= 5
+        ? `<div class="banner ok"><span>🔒</span><div><b>이 아이폰 안에만 저장됩니다.</b><br>서버로 전송되는 정보가 없어요.</div></div>`
+        : ""));
+
+  renderToday();
+  renderBackupBanner();
+
+  const rev = liveDrinks().filter(d=>has(data.needReview,d.id));
+  $("#reviewCount").textContent = rev.length ? rev.length+"개" : "";
+  $("#revStudy").style.display = rev.length ? "inline" : "none";
+  $("#reviewList").innerHTML = rev.length ? rev.map(d=>rowHTML(d,"다시")).join("")
+    : `<div class="empty">학습 중 <b>“다시 볼래요”</b>를 누른 메뉴가<br>여기에 모입니다.</div>`;
+  bindRows("#reviewList");
+}
+
+/* 목록에서 HOT / ICE 를 한눈에 구분하게 하는 배지 */
+function tempBadge(d){
+  const t = (d.temp || "").toUpperCase();
+  if(t === "HOT") return `<span class="tempb hot">HOT</span>`;
+  if(t === "ICE") return `<span class="tempb ice">ICE</span>`;
+  if(t.includes("HOT") && t.includes("ICE")) return `<span class="tempb both"><i>ICE</i><i>HOT</i></span>`;
+  return `<span class="tempb none">${catEmo(d.cat)}</span>`;
+}
+/* 앱바 부제: 안내문 대신 현재 상태를 보여준다 */
+/* 검색 결과가 없을 때: 무엇을 찾고 있었는지 보여주고 빠져나갈 길을 준다 */
+function noResultHTML(q, what){
+  return `<div class="empty" style="padding-bottom:18px">
+    ${emptyMouse(2)}
+    “${esc(q)}”에 맞는 ${what} 없어요.
+    <button class="cta ghost" data-clearq="1" style="margin-top:16px">검색 지우기</button>
+  </div>`;
+}
+function renderListSub(){
+  const el = $("#listSub"); if(!el) return;
+  if(state.listTab === "shelf"){
+    const today = tagGroups().reduce((n,g)=>n+g.items.length, 0);
+    el.textContent = "개봉 항목 " + data.shelf.length + "개"
+      + (today ? " · 오늘 폐기 " + today + "개" : "");
+    return;
+  }
+  if(state.listTab === "sub"){
+    const used = data.drinks.filter(d=>(d.subRefs||[]).length).length;
+    el.textContent = "부재료 " + data.subs.length + "개"
+      + (used ? " · 메뉴 " + used + "곳에 사용" : "");
+    return;
+  }
+  if(state.listTab === "memo"){
+    el.textContent = "메모 " + data.memos.length + "개";
+    return;
+  }
+  const live = liveDrinks();
+  const done = live.filter(d=>has(data.mastered,d.id)).length;
+  /* 보관 개수는 앱바 오른쪽 📦 버튼이 이미 말해준다. 여기서 또 쓰면 줄이 넘어간다 */
+  el.textContent = "레시피 " + live.length + "개 · 외운 것 " + done + "개";
+}
+function rowHTML(d, pill, selectable){
+  const on = selectable && state.sel.has(d.id);
+  return `<button class="row${on?" on":""}" data-id="${esc(d.id)}">
+    ${selectable ? `<span class="checkc">✓</span>` : tempBadge(d)}
+    <span class="meta"><b>${esc(d.name)}</b><span>${d.ing.slice(0,3).map(i=>esc(i[0])).join(" · ")}</span></span>
+    ${selectable ? "" : (pill?`<span class="pill">${esc(pill)}</span>`:(has(data.mastered,d.id)?`<span class="pill done">완료</span>`:""))}
+  </button>`;
+}
+/* ---------- 보관함 ----------
+   외울 필요가 없어진 레시피를 지우지 않고 빼두는 곳. 내용은 그대로 남고
+   학습 덱·레시피 목록·진도율에서만 빠진다. 언제든 되돌릴 수 있다. */
+function setArch(ids, on){
+  const list = Array.isArray(ids) ? ids : [ids];
+  list.forEach(id=>{
+    const d = data.drinks.find(x=>x.id===id);
+    if(d) d.arch = !!on;
+  });
+  persist();
+}
+function renderArchBtn(){
+  const n = archDrinks().length;
+  $("#archBtn").style.display = (n && state.listTab === "recipe" && !state.selMode) ? "flex" : "none";
+  $("#archCnt").textContent = n;
+}
+function renderArch(){
+  const q = ($("#archQ").value||"").trim().toLowerCase();
+  const all = archDrinks();
+  const hit = all.filter(d=>textHit(d.name+" "+(d.en||"")+" "+d.ing.map(i=>i[0]).join(" "), q));
+  $("#archSub").textContent = all.length
+    ? all.length + "개 · 학습과 레시피 목록에서 빠져 있어요"
+    : "비어 있어요";
+  $("#archBody").innerHTML = all.length
+    ? (hit.length
+        ? hit.map(d=>rowHTML(d, "보관")).join("")
+        : noResultHTML(q, "레시피가"))
+    : `<div class="empty" style="padding:26px 18px 22px">
+        ${emptyMouse(2)}
+        <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">보관함이 비어 있어요</b>
+        더 이상 외울 필요 없는 메뉴는 삭제하지 말고<br>레시피 상세에서 <b>보관하기</b>를 눌러 여기로 옮겨두세요.<br>
+        내용은 그대로 남고 학습에만 안 나옵니다.
+      </div>`;
+  bindRows("#archBody");
+  const clr = $("#archBody").querySelector("[data-clearq]");
+  if(clr) clr.addEventListener("click", ()=>{ $("#archQ").value = ""; renderArch(); });
+}
+function openArch(){ $("#archQ").value = ""; go("arch"); $("#s-arch .scroll").scrollTop = 0; }
+$("#archBtn").addEventListener("click", openArch);
+$("#archClose").addEventListener("click", ()=>go("list"));
+$("#archQ").addEventListener("input", renderArch);
+
+function bindRows(sel, selectable){
+  document.querySelectorAll(sel+" .row").forEach(r=>r.addEventListener("click",()=>{
+    if(selectable && state.selMode){ toggleSel(r.dataset.id); return; }
+    openSheet(r.dataset.id);
+  }));
+}
+/* 마스코트를 누르면 응원 한마디 */
+function sayBubble(msg){
+  const el = $("#mbubble");
+  el.textContent = msg;
+  el.classList.remove("pop");
+  void el.offsetWidth;          // 애니메이션 재시작
+  el.classList.add("pop");
+}
+const SLEEPY = ["쿨… 자는 중이츄", "내일 보자츄…", "Zzz… 츄…", "조금만 더 잘게츄", "지금은 꿈에서 레시피 외우는 중이츄"];
+$("#mascot").addEventListener("click", ()=>{
+  const pool = currentMood() === "night" ? SLEEPY : CHEERS;
+  sayBubble(pool[Math.floor(Math.random() * pool.length)]);
+  if(currentMood() === "morning"){ playSip(); return; }
+  if(currentMood() !== "night"){          // 말할 때 한 번 깜빡
+    mascot.blink = true; drawMascot();
+    setTimeout(()=>{ mascot.blink = false; drawMascot(); }, 150);
+  }
+});
+/* 학습 방식을 고르는 시트.
+   범위를 넘기면(한 메뉴만, 복습만) 그 범위를 유지한 채 방식만 고르게 한다.
+   범위가 좁다고 방식을 못 고를 이유는 없다. */
+function openModeSheet(customPool, scopeLabel){
+  const custom = Array.isArray(customPool) ? customPool.slice() : null;   // 이벤트 객체가 넘어와도 무시
+  const pool = custom || drinksOf(state.filter);
+  if(!pool.length){ toast("학습할 레시피가 없어요"); go("list"); return; }
+  const scope = scopeLabel || (state.filter === "all" ? "전체" : (catLabel(state.filter) || "전체"));
+  const opt = (m, emo, title, desc) => `
+    <button class="row" data-mode="${m}">
+      <span class="emo">${emo}</span>
+      <span class="meta"><b>${title}</b><span>${desc}</span></span>
+      ${data.mode === m ? `<span class="pill done">지난번</span>` : ""}
+    </button>`;
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">학습 방식</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:20px">${esc(scope)} · ${pool.length}개 메뉴</div>
+    ${opt("flip","🔄","카드 뒤집기","이름 보고 재료를 통째로 떠올리기")}
+    ${opt("blank","✏️","빈칸 채우기","용량만 가리고 하나씩 확인하기")}`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#sheetBody").querySelectorAll(".row").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      data.mode = b.dataset.mode; persist();
+      closeSheet();
+      setTimeout(()=>startSession(custom), 180);
+    });
+  });
+}
+$("#startBtn").addEventListener("click", ()=>openModeSheet());
+$("#revStudy").addEventListener("click", ()=>{        // 다시 볼래요 목록만 돌린다
+  const rev = liveDrinks().filter(d=>has(data.needReview, d.id));
+  if(rev.length) openModeSheet(rev, "다시 볼래요");
+});
+
+/* ---------- 학습 ---------- */
+function startSession(customPool){
+  const custom = Array.isArray(customPool) ? customPool.slice() : null;   // 이벤트 객체가 넘어와도 무시
+  state.deckIds = custom ? custom.map(d=>d.id) : null;
+  const pool = custom || drinksOf(state.filter).slice();
+  if(!pool.length){ toast("학습할 레시피가 없어요"); go("list"); return; }
+  for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=pool[i]; pool[i]=pool[j]; pool[j]=t; }
+  state.deck = pool; state.idx = 0; state.flipped = false;
+  state.revealed.clear(); state.discOpen = false;
+  state.stat = {ok:0, again:0, total:pool.length};
+  go("study"); renderCard();
+}
+function bindActions(){
+  document.querySelectorAll("#actions .act").forEach(b=>b.addEventListener("click",()=>action(b.dataset.a)));
+}
+function renderCard(){
+  const d = state.deck[state.idx];
+  if(!d){ finish(); return; }
+  $("#progBar").style.width = (state.idx/state.deck.length*100) + "%";
+  $("#progTxt").textContent = (state.idx+1)+"/"+state.deck.length;
+
+  if(data.mode === "blank"){
+    $("#card").classList.remove("full");
+    $("#card").innerHTML = blankHTML(d);
+    bindBlanks(d);
+    renderBlankActions(d);
+    return;
+  }
+  $("#card").classList.toggle("full", !state.flipped);
+  $("#card").innerHTML = state.flipped ? backHTML(d) : frontHTML(d);
+  $("#actions").innerHTML = state.flipped
+    ? `<button class="act again" data-a="again">다시 볼래요</button><button class="act ok" data-a="ok">외웠어요</button>`
+    : `<button class="act flip" data-a="flip">레시피 확인하기</button>`;
+  bindActions();
+}
+
+/* ---------- 빈칸 채우기 ---------- */
+function discHTML(d){
+  return `${d.steps.length?`<div class="lb">제조 순서</div>
+      <ol class="steps">${d.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>`:""}
+    ${d.tip?`<div class="lb" style="margin-top:16px">기억 포인트</div>
+      <div class="tipbox">${esc(d.tip)}</div>`:""}
+    ${subsHTML(d)}`;
+}
+function blankHTML(d){
+  const sub = [enText(d.en), d.temp, cupText(d), catLabel(d.cat)].filter(Boolean).map(esc).join(" · ");
+  return `<div class="face"><div class="back">
+    <h2>${esc(d.name)}</h2>
+    <div class="sub">${sub}</div>
+    <div class="blk"><div class="lb">${d._shelf?"품질 유지기한":"재료 / 용량"}</div>
+      ${d.ing.length ? d.ing.map((it,i)=>`<div class="ing q"><b>${esc(it[0])}</b>${
+          state.revealed.has(i)
+            ? `<span class="amt-on">${esc(it[1]) || "—"}</span>`
+            : `<button class="blank" data-b="${i}">? ? ?</button>`
+        }</div>`).join("")
+      : `<div style="font-size:13.5px;color:var(--muted)">등록된 재료가 없어요.</div>`}
+    </div>
+    ${(d.steps.length || d.tip) ? `<div class="blk" id="discWrap" style="margin-bottom:0">
+        ${state.discOpen ? discHTML(d) : `<button class="disc" id="discBtn">제조 순서 · 기억 포인트 보기</button>`}
+      </div>` : ""}
+  </div></div>`;
+}
+function bindBlanks(d){
+  document.querySelectorAll("#card .blank").forEach(btn=>{
+    btn.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const i = +btn.dataset.b;
+      state.revealed.add(i);
+      const span = document.createElement("span");
+      span.className = "amt-on";
+      span.textContent = d.ing[i][1] || "—";
+      btn.replaceWith(span);
+      renderBlankActions(d);
+    });
+  });
+  const disc = $("#discBtn");
+  if(disc) disc.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    state.discOpen = true;
+    $("#discWrap").innerHTML = discHTML(d);
+  });
+}
+function renderBlankActions(d){
+  const allOpen = d.ing.every((_,i)=>state.revealed.has(i));
+  $("#actions").innerHTML = allOpen
+    ? `<button class="act again" data-a="again">다시 볼래요</button><button class="act ok" data-a="ok">외웠어요</button>`
+    : `<button class="act flip" data-a="revealAll">정답 모두 보기</button>`;
+  bindActions();
+}
+function frontHTML(d){
+  return `<div class="face"><div class="front">
+    <div class="cat">${esc(catEmo(d.cat))} ${esc(catLabel(d.cat) || "기타")}</div>
+    <h2>${esc(d.name)}</h2>
+    ${d.en?`<div class="en">${esc(enText(d.en))}</div>`:""}
+    <div class="tags">${d.temp?`<span class="tag">${esc(d.temp)}</span>`:""}${cupList(d).map(c=>`<span class="tag">${esc(c)}</span>`).join("")}</div>
+    <div class="hint">재료와 용량을 떠올린 뒤 카드를 탭하세요</div></div></div>`;
+}
+function detailHTML(d){
+  return `${d.ing.length?`<div class="blk"><div class="lb">${d._shelf?"품질 유지기한":"재료 / 용량"}</div>
+      ${d.ing.map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("")}</div>`:""}
+    ${d.steps.length?`<div class="blk"><div class="lb">제조 순서</div>
+      <ol class="steps">${d.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></div>`:""}
+    ${d.tip?`<div class="blk"><div class="lb">기억 포인트</div>
+      <div class="tipbox">${esc(d.tip)}</div></div>`:""}
+    ${subsHTML(d)}`;
+}
+function backHTML(d){
+  return `<div class="face"><div class="back">
+    <h2>${esc(d.name)}</h2>
+    <div class="sub">${[enText(d.en),d.temp,cupText(d),catLabel(d.cat)].filter(Boolean).map(esc).join(" · ")}</div>
+    ${detailHTML(d)}</div></div>`;
+}
+function flipCard(){
+  const card = $("#card"); card.classList.add("flipping");
+  setTimeout(()=>{ state.flipped = !state.flipped; renderCard(); card.classList.remove("flipping"); }, 180);
+}
+function action(a){
+  const d = state.deck[state.idx];
+  if(a==="flip"){ flipCard(); return; }
+  if(a==="revealAll"){
+    d.ing.forEach((_,i)=>state.revealed.add(i));
+    state.discOpen = true;
+    renderCard();
+    return;
+  }
+  if(a==="ok"){ state.stat.ok++; add(data.mastered,d.id); rm(data.needReview,d.id); }
+  else { state.stat.again++; add(data.needReview,d.id); rm(data.mastered,d.id); }
+  persist();
+  state.idx++; state.flipped = false;
+  state.revealed.clear(); state.discOpen = false;
+  if(state.idx >= state.deck.length){ finish(); return; }
+  renderCard();
+}
+$("#cardWrap").addEventListener("click",(e)=>{
+  if(data.mode === "blank") return;
+  if(e.target.closest(".act")) return;
+  if(!state.flipped) flipCard();
+});
+$("#quitBtn").addEventListener("click", ()=>go("home"));
+function finish(){
+  const s = state.stat;
+  $("#resOk").textContent = s.ok; $("#resAgain").textContent = s.again; $("#resTotal").textContent = s.total;
+  $("#resMsg").textContent = s.again===0 ? "전부 한 번에 맞혔어요. 완벽합니다!" : `${s.again}개는 복습 목록에 담아뒀어요.`;
+  const rate = s.total ? s.ok / s.total : 1;
+  $("#resCheer").textContent = rate === 1 ? "이 기세로 내일도 한 번 더!"
+    : (rate >= 0.7 ? "잘하고 있어요. 조금만 더 하면 돼요!" : "오늘 본 것만으로도 남아요. 내일 또 봐요!");
+  go("result");
+  startEat();
+}
+/* 학습을 마치면 쥐돌이가 치즈를 먹는다 */
+const EAT_SEQ = ["eat1","eat2","eat3","eat4","eat5","eat4","eat3","eat2"];
+let eatT = null;
+function startEat(){
+  const el = $("#resMascot"); if(!el) return;
+  stopEat();
+  const still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if(still){ el.innerHTML = mouseSVG("eat1"); return; }
+  let i = 0;
+  el.innerHTML = mouseSVG(EAT_SEQ[0]);
+  eatT = setInterval(()=>{ i = (i+1) % EAT_SEQ.length; el.innerHTML = mouseSVG(EAT_SEQ[i]); }, 380);
+}
+function stopEat(){ if(eatT){ clearInterval(eatT); eatT = null; } }
+
+$("#againBtn").addEventListener("click", ()=>{      // 직전과 같은 범위로 다시
+  if(state.deckIds){
+    const pool = liveDrinks().filter(d=>state.deckIds.indexOf(d.id) >= 0);
+    if(pool.length){ startSession(pool); return; }
+  }
+  startSession();
+});
+$("#homeBtn").addEventListener("click", ()=>go("home"));
+
+/* ---------- 목록 ---------- */
+/* 초성 검색 — 질문이 ㅋㅍㅁㅋ 처럼 초성으로만 되어 있으면 초성끼리 비교한다 */
+const CHO_LIST = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+function choStr(str){
+  let out = "";
+  for(const ch of String(str)){
+    const c = ch.charCodeAt(0);
+    out += (c >= 0xAC00 && c <= 0xD7A3) ? CHO_LIST[Math.floor((c - 0xAC00) / 588)] : ch;
+  }
+  return out;
+}
+function textHit(hay, q){
+  if(!q) return true;
+  const t = String(hay||"").toLowerCase();
+  if(t.indexOf(q) >= 0) return true;
+  const qq = q.replace(/\s+/g, "");
+  if(!/^[ㄱ-ㅎ]+$/.test(qq)) return false;
+  return choStr(t).replace(/\s+/g, "").indexOf(qq) >= 0;
+}
+function visibleDrinks(){
+  const q = ($("#q").value||"").trim().toLowerCase();
+  return liveDrinks().filter(d=>textHit(d.name+" "+(d.en||"")+" "+d.ing.map(i=>i[0]).join(" "), q));
+}
+/* 기한(일) 별로 묶어서 개봉일→폐기일 조합을 만든다. 개봉일 포함 N일 → 폐기일 = 개봉일 + (N-1) */
+function tagGroups(){
+  const map = {};
+  data.shelf.forEach(s=>{
+    const n = durDays(s.dur);
+    if(!n || n < 1 || n > 60) return;
+    if(!map[n]) map[n] = [];
+    map[n].push(s);
+  });
+  return Object.keys(map).map(Number).sort((a,b)=>a-b).map(n=>({days:n, items:map[n]}));
+}
+function tagRows(n, today){
+  const rows = [];
+  for(let i=0;i<n;i++){
+    const open = addDays(today, -(n-1) + i);
+    const kill = addDays(open, n-1);
+    rows.push({no:i+1, open:open, kill:kill, today: i === 0});
+  }
+  return rows;
+}
+/* 백업을 권할 때인지 — 앱이 먼저 말을 걸어야 데이터를 안 잃는다 */
+function backupDue(){
+  const n = liveDrinks().length;
+  if(n < 8) return null;                                  // 몇 개 없을 땐 성가시기만 하다
+  const today = ymd(new Date());
+  const snz = data.backupSnooze;
+  if(snz && dayGap(snz, today) < 7) return null;           // "나중에" 를 누른 뒤 일주일은 조용히
+  const b = data.backup;
+  if(!b) return {kind:"never", n:n};
+  const grew = n - (b.count || 0);
+  const days = dayGap(b.at, today);
+  if(grew >= 5) return {kind:"grew", n:n, grew:grew};
+  if(days >= 14) return {kind:"old", n:n, days:days};
+  return null;
+}
+function markBackedUp(){
+  data.backup = {at: ymd(new Date()), count: liveDrinks().length};
+  delete data.backupSnooze;
+  persist();
+  renderBackupBanner();
+  renderStorageCard();      // 설정의 데이터 상태도 같이 갱신
+}
+function renderBackupBanner(){
+  const box = $("#backupBanner"); if(!box) return;
+  const due = backupDue();
+  if(!due){ box.innerHTML = ""; return; }
+  const msg = due.kind === "never"
+    ? `레시피가 ${due.n}개 쌓였어요. 아직 백업 파일이 없습니다.`
+    : (due.kind === "grew"
+      ? `마지막 백업 뒤로 레시피가 ${due.grew}개 늘었어요.`
+      : `마지막 백업이 ${due.days}일 전이에요.`);
+  box.innerHTML = `<div class="banner warn"><span>💾</span><div>
+      <b>백업 파일을 만들어 두세요.</b><br>${esc(msg)} 사파리 데이터를 지우거나 기기를 바꾸면 사라집니다.
+      <div class="bkbtns">
+        <button class="go" id="bkNow">지금 백업</button>
+        <button class="later" id="bkLater">나중에</button>
+      </div></div></div>`;
+  $("#bkNow").addEventListener("click", ()=>{ saveBackupFile(); });
+  $("#bkLater").addEventListener("click", ()=>{
+    data.backupSnooze = ymd(new Date()); persist(); renderBackupBanner();
+    toast("일주일 뒤에 다시 알려드릴게요");
+  });
+}
+
+function renderToday(){
+  const groups = tagGroups();
+  const now = new Date();
+  if(!groups.length){ $("#todaySect").style.display = "none"; return; }
+  $("#todaySect").style.display = "block";
+  $("#todayDate").textContent = (now.getMonth()+1) + "월 " + now.getDate() + "일 기준";
+  $("#todayList").innerHTML = groups.map(g=>{
+    const open = addDays(now, -(g.days-1));
+    return `<button class="row" data-days="${g.days}">
+      <span class="emo">🗓</span>
+      <span class="meta"><b>${g.days}일 · ${fmtDate(open)} 개봉분</b>
+        <span>${g.items.map(s=>esc(s.name)).join(" · ")}</span></span>
+      <span class="pill">오늘 폐기</span>
+    </button>`;
+  }).join("");
+  $("#todayList").querySelectorAll(".row").forEach(b=>b.addEventListener("click", ()=>{
+    state.listTab = "shelf";
+    state.shelfOpen.add(Number(b.dataset.days));   // 누른 기한을 펼쳐서 보여준다
+    go("list");
+  }));
+}
+
+/* 기한(일수)별로 묶는다. 목록은 고정이 아니라 등록한 만큼 생긴다. */
+function shelfGroups(){
+  const map = {};
+  data.shelf.forEach(s=>{
+    const n = durDays(s.dur);
+    const key = (n && n >= 1 && n <= 60) ? n : 0;   // 0 = 기한을 못 읽은 것
+    (map[key] = map[key] || []).push(s);
+  });
+  return Object.keys(map).map(Number).sort((a,b)=>a-b).map(n=>({days:n, items:map[n]}));
+}
+function shelfRowHTML(s){
+  return `<button class="shelfrow" data-id="${esc(s.id)}">
+    ${s.place?`<span class="pl">${esc(s.place)}</span>`:""}
+    <span class="nm">${esc(s.name)}</span>
+    <span class="du">${esc(s.dur||"—")}</span>
+  </button>`;
+}
+function tagTableHTML(days, now){
+  return `<div class="tagset" style="margin-top:16px">
+    <div class="tagset-h"><h4>${days}일택</h4><span>${days}가지 조합</span></div>
+    ${tagRows(days, now).map(r=>`
+      <div class="tagrow${r.today?" today":""}">
+        <span class="tagno" style="background:${TAG_COLORS[(r.no-1) % TAG_COLORS.length]}">${r.no}</span>
+        <span class="tagdates"><span class="o">${fmtDate(r.open)} 개봉</span><span class="x">${fmtDate(r.kill)} 폐기</span></span>
+        ${r.today?`<span class="tagbadge">오늘 폐기</span>`:""}
+      </div>`).join("")}
+  </div>`;
+}
+function renderShelf(){
+  const q = ($("#q").value||"").trim().toLowerCase();
+  const box = $("#shelfBody");
+  const now = new Date();
+  const groups = shelfGroups();
+
+  if(!data.shelf.length){
+    box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 개봉 항목이 없어요.<br>오른쪽 위 + 로 추가하면<br>기한별로 여기에 묶여서 보입니다.</div>`;
+    return;
+  }
+  let html = "";
+  groups.forEach(g=>{
+    const items = g.items.filter(s=>!q ||
+      textHit(s.name+" "+(s.place||"")+" "+(s.dur||""), q));
+    if(!items.length) return;
+    const open = q ? true : state.shelfOpen.has(g.days);      // 검색 중엔 다 펼친다
+    const label = g.days ? g.days + "일" : "미정";
+    html += `<div class="durgrp${open?" on":""}" data-days="${g.days}">
+      <button class="durgrp-h" data-toggle="${g.days}">
+        <span class="dd">${esc(label)}</span>
+        <span class="nm"><b>${items.length}개</b><span>${items.map(s=>esc(s.name)).join(" · ")}</span></span>
+        <span class="ar">▾</span>
+      </button>
+      <div class="durgrp-b">
+        ${items.map(shelfRowHTML).join("")}
+        ${g.days ? tagTableHTML(g.days, now) : ""}
+      </div>
+    </div>`;
+  });
+  box.innerHTML = html || noResultHTML(q, "항목이");
+
+  box.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click", ()=>{
+    const d = Number(b.dataset.toggle);
+    if(state.shelfOpen.has(d)) state.shelfOpen.delete(d); else state.shelfOpen.add(d);
+    renderShelf();
+  }));
+  box.querySelectorAll(".shelfrow").forEach(b=>b.addEventListener("click", ()=>
+    openShelfSheet(data.shelf.findIndex(x=>x.id===b.dataset.id))));
+}
+
+function renderList(){
+  document.querySelectorAll("#listSeg button").forEach(b=>b.classList.toggle("on", b.dataset.tab===state.listTab));
+  const tab = state.listTab;
+  const shelfMode = tab === "shelf";
+  const subMode   = tab === "sub";
+  const memoMode  = tab === "memo";
+  renderListSub();
+  $("#listBody").style.display  = (!shelfMode && !subMode && !memoMode) ? "block" : "none";
+  $("#subBody").style.display   = subMode   ? "block" : "none";
+  $("#shelfBody").style.display = shelfMode ? "block" : "none";
+  $("#memoBody").style.display  = memoMode  ? "block" : "none";
+  $("#q").placeholder = shelfMode ? "항목 · 기한으로 검색"
+    : (subMode ? "부재료 이름 · 쓰이는 메뉴로 검색"
+    : (memoMode ? "메모 내용으로 검색" : "메뉴 이름 · 재료로 검색"));
+  $("#newBtn").style.display = "flex";
+  renderArchBtn();
+  if(shelfMode || subMode || memoMode){
+    if(shelfMode) renderShelf(); else if(memoMode) renderMemoTab(); else renderSubTab();
+    $("#listBar").style.display = "flex";
+    $("#selBar").style.display = "none";
+    $("#selActions").classList.remove("on");
+    $("#selBtn").style.display = "none";
+    return;
+  }
+  const q = ($("#q").value||"").trim();
+  const hit = visibleDrinks();
+  const sm = state.selMode;
+  let html = "";
+  if(!liveDrinks().length && !q){                   // 처음 왔을 때는 분류 대신 길을 알려준다
+    const nArch = archDrinks().length;
+    $("#listBody").innerHTML = nArch
+      /* 전부 보관해 둔 상태 — 데이터가 사라진 게 아니라는 걸 분명히 해준다 */
+      ? `<div class="empty" style="padding:26px 18px 22px">
+          ${emptyMouse(2)}
+          <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">보이는 레시피가 없어요</b>
+          ${nArch}개를 모두 보관해 두셨어요.<br>지워진 게 아니라 학습에서만 빠져 있습니다.
+          <button class="cta ghost" id="emptyArch" style="margin-top:18px">보관함 열기</button>
+        </div>`
+      : `<div class="empty" style="padding:26px 18px 22px">
+          ${emptyMouse(2)}
+          <b style="display:block;font-size:15px;color:var(--ink);margin-bottom:8px">아직 레시피가 없어요</b>
+          오른쪽 위 <b>+</b> 로 직접 넣거나<br>사진 속 글자를 붙여넣어 등록할 수 있어요.<br>
+          어떤 앱인지 먼저 둘러보시려면 아래를 눌러보세요.
+          <button class="cta ghost" id="emptySample" style="margin-top:18px">샘플 레시피 15개 넣어보기</button>
+        </div>`;
+    if($("#emptySample")) $("#emptySample").addEventListener("click", loadSamples);
+    if($("#emptyArch")) $("#emptyArch").addEventListener("click", openArch);
+    $("#listBar").style.display = "flex";
+    $("#selBar").style.display = "none";
+    $("#selActions").classList.remove("on");
+    $("#selBtn").style.display = "none";
+    return;
+  }
+  data.cats.forEach(c=>{
+    const items = hit.filter(d=>d.cat===c.id);
+    if(!items.length && q) return;                 // 검색 중일 땐 빈 분류를 숨긴다
+    html += `<div class="grp"><span class="ge">${esc(c.emo)}</span>${esc(c.label)}</div>`;
+    html += items.length
+      ? items.map(d=>rowHTML(d,null,sm)).join("")
+      : `<div class="empty" style="padding:16px;margin-bottom:9px;font-size:13px">아직 이 분류에 레시피가 없어요.</div>`;
+  });
+  const others = hit.filter(d=>!catOf(d.cat));
+  if(others.length) html += `<div class="grp">기타</div>` + others.map(d=>rowHTML(d,null,sm)).join("");
+  $("#listBody").innerHTML = html || noResultHTML(q, "레시피가");
+  bindRows("#listBody", sm);
+
+  $("#listBar").style.display = sm ? "none" : "flex";
+  $("#selBar").style.display = sm ? "flex" : "none";
+  $("#selActions").classList.toggle("on", sm);
+  $("#selBtn").style.display = (liveDrinks().length && !sm) ? "block" : "none";
+  if(sm) updateSelBar();
+}
+function updateSelBar(){
+  const hit = visibleDrinks(), n = state.sel.size;
+  $("#selCnt").textContent = n ? n + "개 선택" : "레시피 선택";
+  const allOn = hit.length > 0 && hit.every(d=>state.sel.has(d.id));
+  $("#selAll").textContent = allOn ? "선택 해제" : "모두 선택";
+  $("#selDelete").disabled = n === 0;
+  $("#selDelete").textContent = n ? n + "개 삭제" : "삭제";
+  $("#selArchive").disabled = n === 0;
+  $("#selArchive").textContent = n ? n + "개 보관" : "보관";
+}
+/* 목록 전체를 다시 그리지 않고 해당 줄만 갱신 (탭 반응이 즉각적이도록) */
+function toggleSel(id){
+  if(state.sel.has(id)) state.sel.delete(id); else state.sel.add(id);
+  const el = document.querySelector('#listBody .row[data-id="' + id + '"]');
+  if(el) el.classList.toggle("on", state.sel.has(id));
+  updateSelBar();
+}
+function enterSel(){
+  state.selMode = true; state.sel.clear();
+  $("#tabs").classList.add("hide");
+  renderList();
+}
+function exitSel(){
+  if(!state.selMode) return;
+  state.selMode = false; state.sel.clear();
+  $("#tabs").classList.remove("hide");
+  renderList();
+}
+$("#selBtn").addEventListener("click", enterSel);
+$("#selCancel").addEventListener("click", exitSel);
+$("#selAll").addEventListener("click", ()=>{
+  const hit = visibleDrinks();
+  const allOn = hit.length > 0 && hit.every(d=>state.sel.has(d.id));
+  if(allOn) hit.forEach(d=>state.sel.delete(d.id));
+  else hit.forEach(d=>state.sel.add(d.id));
+  document.querySelectorAll("#listBody .row").forEach(r=>r.classList.toggle("on", state.sel.has(r.dataset.id)));
+  updateSelBar();
+});
+$("#selArchive").addEventListener("click", ()=>{
+  const ids = Array.from(state.sel);
+  if(!ids.length) return;
+  const first = data.drinks.find(d=>d.id===ids[0]);
+  const label = ids.length === 1 ? `“${first?first.name:""}”를` : `선택한 ${ids.length}개를`;
+  confirmBox("레시피 보관",
+    `${label} 보관할까요? 내용은 그대로 남고 학습과 목록에서만 빠집니다.`,
+    "보관", ()=>{
+      setArch(ids, true);
+      toast(`${ids.length}개를 보관함으로 옮겼어요`);
+      exitSel(); renderHome();
+    });
+});
+$("#selDelete").addEventListener("click", ()=>{
+  const ids = Array.from(state.sel);
+  if(!ids.length) return;
+  const first = data.drinks.find(d=>d.id===ids[0]);
+  const label = ids.length === 1 ? `“${first?first.name:""}”를` : `선택한 ${ids.length}개를`;
+  confirmBox("레시피 삭제", `${label} 삭제할까요? 되돌릴 수 없어요.`, "삭제", ()=>{
+    data.drinks = data.drinks.filter(d=>ids.indexOf(d.id) < 0);
+    ids.forEach(id=>{ rm(data.mastered,id); rm(data.needReview,id); });
+    persist();
+    toast(`${ids.length}개를 삭제했어요`);
+    exitSel(); renderHome();
+  });
+});
+$("#q").addEventListener("input", renderList);
+document.querySelectorAll("#listSeg button").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    if(state.selMode) exitSel();
+    state.listTab = b.dataset.tab;
+    renderList();                 // 검색어는 그대로 둔다 (스와이프와 같게)
+  });
+});
+
+/* =========================================================
+   레시피 화면 안에서 좌우로 밀어 세그먼트 이동
+   (탭과 달리 검색어는 그대로 둔다)
+   ========================================================= */
+const SEG_ORDER = ["recipe", "sub", "shelf", "memo"];
+const segS = { on:false, axis:"", x0:0, y0:0, id:null, w:0, busy:false, dx:0 };
+
+function segBlocked(t){
+  if($("#sheet").classList.contains("on")) return true;
+  if($("#mask").classList.contains("on")) return true;
+  const dlg = $("#dlg"), lock = $("#lock");
+  if(dlg && dlg.classList.contains("on")) return true;
+  if(lock && lock.classList.contains("on")) return true;
+  if(state.selMode) return true;                       // 선택 중엔 넘기지 않는다
+  if(!t || !t.closest) return true;
+  if(t.closest("input, textarea, select")) return true;
+  return false;
+}
+function segNeighbor(dir){
+  const i = SEG_ORDER.indexOf(state.listTab) + dir;
+  return (i >= 0 && i < SEG_ORDER.length) ? SEG_ORDER[i] : null;
+}
+function segSlideTo(tab, dir){
+  const pane = $("#listPane");
+  const still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const off = 42;
+  const at = px => `translate3d(${still ? 0 : px}px,0,0)`;   // 레이어를 놓지 않는다
+  segS.busy = true;
+  pane.classList.remove("drag");
+  pane.style.transform = at(dir < 0 ? -off : off);
+  pane.style.opacity = "0";
+  setTimeout(()=>{
+    state.listTab = tab;
+    renderList();                                      // 검색어는 지우지 않는다
+    pane.style.transition = "none";
+    pane.style.transform = at(dir < 0 ? off : -off);
+    requestAnimationFrame(()=>{
+      pane.style.transition = "";
+      pane.style.transform = at(0);
+      pane.style.opacity = "1";
+      setTimeout(()=>{ pane.style.opacity = "1"; segS.busy = false; }, 220);
+    });
+  }, still ? 120 : 190);
+}
+function segStart(e){
+  if(segS.busy || e.touches.length !== 1) return;
+  if(!$("#s-list").classList.contains("active")) return;
+  if(segBlocked(e.target)) return;
+  const t = e.touches[0];
+  const r = $("#s-list").getBoundingClientRect();
+  if(t.clientX - r.left < 24 || r.right - t.clientX < 24) return;   // 가장자리는 iOS 몫
+  segS.on = true; segS.axis = ""; segS.x0 = t.clientX; segS.y0 = t.clientY;
+  segS.w = r.width; segS.id = t.identifier; segS.dx = 0;
+}
+function segMove(e){
+  if(!segS.on) return;
+  const t = [...e.touches].find(x=>x.identifier===segS.id);
+  if(!t) return;
+  const dx = t.clientX - segS.x0, dy = t.clientY - segS.y0;
+  if(!segS.axis){
+    if(Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+    if(Math.abs(dx) < Math.abs(dy) * 1.4){ segS.on = false; return; }  // 세로 스크롤에 양보
+    segS.axis = "x";
+    $("#listPane").classList.add("drag");
+  }
+  e.preventDefault();
+  const has = !!segNeighbor(dx < 0 ? 1 : -1);
+  const pull = has ? 0.38 : 0.12;                       // 끝 칸에서는 거의 안 밀린다
+  // 소수점 이동은 도트 그림을 반 칸씩 다시 그리게 만들어 쥐돌이가 들썩여 보인다.
+  segS.dx = Math.round(dx * pull);                      // 민 거리는 여기에 들고 있는다
+  $("#listPane").style.transform = `translate3d(${segS.dx}px,0,0)`;
+}
+function segEnd(){
+  if(!segS.on) return;
+  const axis = segS.axis;
+  segS.on = false; segS.axis = "";
+  const pane = $("#listPane");
+  if(axis !== "x") return;
+  const dx = segS.dx; segS.dx = 0;                     // style 을 되읽지 않는다
+  pane.classList.remove("drag");
+  const dir = dx < 0 ? 1 : -1;
+  const next = segNeighbor(dir);
+  if(next && Math.abs(dx) > segS.w * 0.06){            // 충분히 밀었으면 넘어간다
+    segSlideTo(next, dir);
+  } else {
+    pane.style.transform = "translate3d(0px,0,0)";     // 원위치. transform 은 그대로 둔다
+  }
+}
+$("#s-list").addEventListener("click", e=>{
+  const b = e.target.closest("[data-clearq]");
+  if(!b) return;
+  $("#q").value = "";
+  renderList();
+});
+
+(function bindSegSwipe(){
+  const el = $("#s-list"); if(!el) return;
+  el.addEventListener("touchstart", segStart, {passive:true});
+  el.addEventListener("touchmove",  segMove,  {passive:false});
+  el.addEventListener("touchend",   segEnd,   {passive:true});
+  el.addEventListener("touchcancel",segEnd,   {passive:true});
+})();
+
+/* ---------- 부재료 (한 번 등록해서 여러 메뉴가 나눠 쓴다) ---------- */
+function subsSorted(){
+  return data.subs.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),"ko"));
+}
+function subMatch(s, q){
+  return textHit([s.name, usesOf(s.id).map(d=>d.name).join(" "),
+    (s.ing||[]).map(i=>i[0]+" "+i[1]).join(" ")].join(" "), q);
+}
+function renderSubTab(){
+  const q = ($("#q").value||"").trim().toLowerCase();
+  const hit = subsSorted().filter(s=>subMatch(s,q));
+  const box = $("#subBody");
+  box.innerHTML = hit.length
+    ? hit.map(s=>{
+        const uses = usesOf(s.id);
+        return `<button class="row" data-id="${esc(s.id)}">
+          <span class="subb">부재료</span>
+          <span class="meta"><b>${esc(s.name)}</b><span>${uses.length
+            ? uses.map(d=>esc(d.name) + (d.arch ? " 📦" : "")).join(" · ")
+            : "아직 연결된 메뉴가 없어요"}</span></span>
+          ${uses.length > 1 ? `<span class="pill done">${uses.length}곳</span>` : ""}
+        </button>`;
+      }).join("")
+    : (q ? noResultHTML(q, "부재료가")
+         : `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}등록된 부재료가 없어요.<br>오른쪽 위 <b>+</b> 로 자몽청처럼 따로 만들어 두는 재료를<br>한 번만 등록해 두고 여러 메뉴에 연결할 수 있어요.</div>`);
+  box.querySelectorAll(".row").forEach(b=>
+    b.addEventListener("click", ()=>openSubSheet(b.dataset.id)));
+}
+function subDetailHTML(s){
+  const tag = [s.place, s.dur].filter(Boolean).join(" ");
+  return `${tag ? `<div class="blk"><div class="lb">보관</div><div class="ing"><b>${esc(tag)}</b><span></span></div></div>` : ""}
+    ${(s.ing||[]).length ? `<div class="blk"><div class="lb">재료 / 용량</div>
+      ${(s.ing||[]).map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("")}</div>` : ""}
+    ${(s.steps||[]).length ? `<div class="blk"><div class="lb">만드는 순서</div>
+      <ol class="steps">${s.steps.map(t=>`<li>${esc(t)}</li>`).join("")}</ol></div>` : ""}
+    ${s.tip ? `<div class="blk"><div class="lb">기억 포인트</div><div class="tipbox">${esc(s.tip)}</div></div>` : ""}`;
+}
+function openSubSheet(id){
+  const s = subById(id); if(!s) return;
+  const uses = usesOf(s.id);
+  const body = subDetailHTML(s);
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 2px;font-size:23px;font-weight:800;letter-spacing:-.5px">${esc(s.name)}</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">부재료 · 학습 카드에는 나오지 않아요</div>
+    ${body || `<div class="empty" style="margin-bottom:4px">내용이 아직 비어 있어요.</div>`}
+    <div class="blk" style="margin-bottom:0"><div class="lb">쓰이는 메뉴</div>
+      ${uses.length
+        ? `<div class="uses">${uses.map(d=>`<button data-go-id="${esc(d.id)}">${esc(d.name)}</button>`).join("")}</div>`
+        : `<p class="cap" style="margin:8px 0 0">아직 연결된 메뉴가 없어요. 아래에서 골라 주세요.</p>`}
+    </div>
+    <button class="cta ghost" id="subLink" style="margin-top:22px">쓰이는 메뉴 고르기</button>
+    <button class="cta" id="subEdit">수정하기</button>
+    <button class="cta danger" id="subKill">삭제하기</button>`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#sheetBody").querySelectorAll("[data-go-id]").forEach(b=>
+    b.addEventListener("click", ()=>{ const gid=b.dataset.goId; closeSheet(); setTimeout(()=>openSheet(gid), 220); }));
+  $("#subLink").addEventListener("click", ()=>openSubLinkSheet(s.id));
+  $("#subEdit").addEventListener("click", ()=>{ closeSheet(); openSubEditor(s.id, "list"); });
+  $("#subKill").addEventListener("click", ()=>{
+    closeSheet();
+    const n = usesOf(s.id).length;
+    confirmBox("부재료 삭제",
+      `“${s.name}”를 삭제할까요?` + (n ? ` 연결된 메뉴 ${n}곳에서도 함께 빠집니다.` : "") + " 되돌릴 수 없어요.",
+      "삭제", ()=>{ deleteSub(s.id); toast("삭제했어요"); renderList(); });
+  });
+}
+function deleteSub(id){
+  data.subs = data.subs.filter(x=>x.id!==id);
+  data.drinks.forEach(d=>{ d.subRefs = (d.subRefs||[]).filter(x=>x!==id); });
+  persist();
+}
+/* 부재료 쪽에서 메뉴를 고른다 — 같은 부재료를 쓰는 메뉴가 여럿일 때 한 번에 이어 준다 */
+function openSubLinkSheet(id){
+  const s = subById(id); if(!s) return;
+  const picked = new Set(usesOf(s.id).map(d=>d.id));
+  const draw = ()=>{
+    const q = (($("#linkQ")||{}).value||"").trim();
+    const list = q ? data.drinks.filter(d=>textHit([d.name,d.en||""].join(" "), q.toLowerCase())) : data.drinks;
+    $("#linkList").innerHTML = list.length
+      ? list.map(d=>`<button type="button" class="pick linkrow${picked.has(d.id)?" on":""}" data-id="${esc(d.id)}">
+           <span class="box">✓</span>${esc(d.name)}${d.arch?" 📦":""}</button>`).join("")
+      : `<p class="cap" style="margin:6px 0 0">“${esc(q)}”에 맞는 메뉴가 없어요.</p>`;
+    $("#linkList").querySelectorAll(".linkrow").forEach(b=>b.addEventListener("click", ()=>{
+      const did = b.dataset.id;
+      if(picked.has(did)) picked.delete(did); else picked.add(did);
+      draw();
+    }));
+    $("#linkCnt").textContent = picked.size ? picked.size + "개 선택" : "선택 안 함";
+  };
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 2px;font-size:21px;font-weight:800;letter-spacing:-.4px">쓰이는 메뉴</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:16px">“${esc(s.name)}”를 쓰는 메뉴를 모두 골라 주세요 · <span id="linkCnt"></span></div>
+    ${data.drinks.length > 8 ? `<div class="search" style="margin-bottom:14px"><span style="color:var(--muted);font-size:15px">🔍</span>
+      <input id="linkQ" type="search" placeholder="메뉴 이름으로 좁히기" autocomplete="off"></div>` : ""}
+    <div class="pickers" id="linkList" style="margin-bottom:4px"></div>
+    <button class="cta" id="linkSave" style="margin-top:20px">저장하기</button>
+    <button class="cta ghost" id="linkBack">취소</button>`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  draw();
+  if($("#linkQ")) $("#linkQ").addEventListener("input", draw);
+  $("#linkBack").addEventListener("click", ()=>openSubSheet(s.id));
+  $("#linkSave").addEventListener("click", ()=>{
+    data.drinks.forEach(d=>{
+      const refs = (d.subRefs||[]).filter(x=>x!==s.id);
+      if(picked.has(d.id)) refs.push(s.id);
+      d.subRefs = refs;
+    });
+    persist();
+    toast(picked.size ? `메뉴 ${picked.size}곳에 연결했어요` : "연결을 모두 해제했어요");
+    renderList();
+    openSubSheet(s.id);
+  });
+}
+
+/* ---------- 개봉관리 ---------- */
+/* ---------- 메모 ---------- */
+function fmtMemoAt(at){
+  const d = new Date(at);
+  if(isNaN(d)) return "";
+  const now = new Date();
+  const t = String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+  if(ymd(d) === ymd(now)) return "오늘 " + t;
+  const day = (d.getMonth()+1) + "월 " + d.getDate() + "일";
+  return (d.getFullYear() === now.getFullYear() ? day : d.getFullYear() + "년 " + day) + " " + t;
+}
+function renderMemoTab(){
+  const q = ($("#q").value||"").trim().toLowerCase();
+  const box = $("#memoBody");
+  const list = data.memos.slice().sort((a,b)=>{
+    if(!!a.pin !== !!b.pin) return a.pin ? -1 : 1;          // 고정 먼저
+    return String(b.at||"").localeCompare(String(a.at||""));  // 그 안에서는 최신순
+  });
+  const hit = q ? list.filter(m=>textHit(m.text, q)) : list;
+  if(!list.length && !q){
+    box.innerHTML = `<div class="empty" style="padding-bottom:18px">${emptyMouse(2)}아직 메모가 없어요.<br>인수인계, 공지, 떠오른 아이디어 —<br>오른쪽 위 <b>+</b> 로 적어두세요.</div>`;
+    return;
+  }
+  box.innerHTML = hit.length
+    ? hit.map(m=>`<button class="memorow${m.pin?" pinned":""}" data-id="${esc(m.id)}">
+        <span class="mtxt">${esc(m.text)}</span>
+        <span class="mat">${m.pin?`<b class="mpin">📌 고정됨</b> · `:""}${esc(fmtMemoAt(m.at))}</span>
+      </button>`).join("")
+    : noResultHTML(q, "메모가");
+  box.querySelectorAll(".memorow").forEach(b=>b.addEventListener("click", ()=>
+    openMemoSheet(data.memos.findIndex(x=>x.id===b.dataset.id))));
+}
+function openMemoSheet(idx){
+  const isNew = (idx === null || idx < 0);
+  const m = isNew ? {text:"", pin:false} : data.memos[idx];
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">${isNew?"새 메모":"메모"}</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:14px">${isNew?"이 아이폰 안에만 저장됩니다":esc(fmtMemoAt(m.at))}</div>
+    <div class="fld"><textarea id="mm-text" rows="7" placeholder="인수인계, 공지, 아이디어…" style="min-height:150px">${esc(m.text)}</textarea></div>
+    <div class="fld"><div class="pickers">
+      <button type="button" class="pick${m.pin?" on":""}" id="mm-pin"><span class="box">✓</span>📌 맨 위에 고정</button>
+    </div></div>
+    <button class="cta" id="mmSave">저장</button>
+    ${isNew?"":`<button class="cta danger" id="mmDel">삭제</button>`}`;
+  let pin = !!m.pin;
+  $("#mm-pin").addEventListener("click", ()=>{
+    pin = !pin;
+    $("#mm-pin").classList.toggle("on", pin);
+  });
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  if(isNew) setTimeout(()=>$("#mm-text").focus(), 250);
+  $("#mmSave").addEventListener("click", ()=>{
+    const text = $("#mm-text").value.trim();
+    if(!text){ toast("내용을 입력해 주세요"); return; }
+    if(isNew) data.memos.push({id:uid(), text:text, at:new Date().toISOString(), pin:pin});
+    else { data.memos[idx].text = text; data.memos[idx].pin = pin; }   // 작성 시각은 그대로
+    persist(); closeSheet(); renderList();
+    toast(isNew ? "메모했어요" : "수정했어요");
+  });
+  const del = $("#mmDel");
+  if(del) del.addEventListener("click", ()=>{
+    closeSheet();
+    confirmBox("메모 삭제", "이 메모를 삭제할까요?", "삭제", ()=>{
+      data.memos.splice(idx,1);
+      persist(); renderList(); toast("삭제했어요");
+    });
+  });
+}
+
+function openShelfSheet(idx){
+  const s = (idx === null || idx < 0) ? {name:"", place:"냉장", dur:"", note:""} : data.shelf[idx];
+  const isNew = (idx === null || idx < 0);
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">${isNew?"개봉 항목 추가":"개봉 항목 수정"}</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">개봉하거나 만든 뒤 언제까지 쓸 수 있는지</div>
+    <div class="fld"><label>항목 이름 *</label>
+      <input type="text" id="sh-name" value="${esc(s.name)}" placeholder="예: 개봉한 우유" autocomplete="off"></div>
+    <div class="fld"><label>보관 장소</label>
+      <div class="pickers" id="sh-place"></div></div>
+    <div class="fld"><label>기한 *</label>
+      <input type="text" id="sh-dur" value="${esc(s.dur||"")}" placeholder="예: 5일 · 8시간 · 당일" autocomplete="off"></div>
+    <div class="fld"><label>메모</label>
+      <textarea id="sh-note" placeholder="라벨 표기, 예외 상황 등">${esc(s.note||"")}</textarea></div>
+    <button class="cta" id="shSave">저장</button>
+    ${isNew?"":`<button class="cta danger" id="shDel">삭제</button>`}`;
+  let place = s.place || "";
+  const drawPlaces = ()=>{
+    $("#sh-place").innerHTML = PLACES.map(pn=>
+      `<button type="button" class="pick${place===pn?" on":""}" data-p="${pn}"><span class="box">✓</span>${pn}</button>`).join("");
+    $("#sh-place").querySelectorAll(".pick").forEach(b=>b.addEventListener("click",()=>{
+      place = (place === b.dataset.p) ? "" : b.dataset.p; drawPlaces();
+    }));
+  };
+  drawPlaces();
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#shSave").addEventListener("click", ()=>{
+    const name = $("#sh-name").value.trim();
+    const dur  = $("#sh-dur").value.trim();
+    if(!name){ toast("항목 이름을 입력해 주세요"); return; }
+    if(!dur){ toast("기한을 입력해 주세요"); return; }
+    const rec = {id: isNew ? uid() : s.id, name:name, place:place, dur:dur, note:$("#sh-note").value.trim()};
+    if(isNew) data.shelf.push(rec); else data.shelf[idx] = rec;
+    persist(); closeSheet(); renderList(); renderHome();
+    toast(isNew ? "추가했어요" : "수정했어요");
+  });
+  const del = $("#shDel");
+  if(del) del.addEventListener("click", ()=>{
+    closeSheet();
+    confirmBox("개봉 항목 삭제", `“${s.name}”를 삭제할까요?`, "삭제", ()=>{
+      const cid = "shelf:"+s.id;
+      data.shelf.splice(idx,1);
+      rm(data.mastered,cid); rm(data.needReview,cid);
+      persist(); renderList(); renderHome(); toast("삭제했어요");
+    });
+  });
+}
+
+/* + 를 누르면 입력 방식을 고르는 시트 */
+$("#newBtn").addEventListener("click", ()=>{
+  if(state.listTab === "shelf"){ openShelfSheet(null); return; }
+  if(state.listTab === "memo"){ openMemoSheet(null); return; }
+  if(state.listTab === "sub"){ openSubEditor(null, "list"); return; }
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">레시피 추가</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:20px">어떻게 넣을까요?</div>
+    <button class="row" id="addManual">
+      <span class="emo">✏️</span>
+      <span class="meta"><b>직접 입력하기</b><span>재료와 순서를 하나씩 입력합니다</span></span>
+    </button>
+    <button class="row" id="addPhoto" style="margin-bottom:4px">
+      <span class="emo">📷</span>
+      <span class="meta"><b>사진에서 가져오기</b><span>사진 속 글자를 복사해 붙여넣으면 자동 정리</span></span>
+    </button>`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#addManual").addEventListener("click", ()=>{ closeSheet(); openEditor(null); });
+  $("#addPhoto").addEventListener("click", ()=>{ closeSheet(); openImport(); });
+});
+
+/* ---------- 상세 시트 ---------- */
+function openSheet(id){
+  if(String(id).indexOf("shelf:") === 0){
+    const sid = String(id).slice(6);
+    const i = data.shelf.findIndex(x=>x.id===sid);
+    if(i >= 0) openShelfSheet(i);
+    return;
+  }
+  const d = data.drinks.find(x=>x.id===id); if(!d) return;
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 2px;font-size:23px;font-weight:800;letter-spacing:-.5px">${esc(d.name)}</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">${[enText(d.en),d.temp,cupText(d)].filter(Boolean).map(esc).join(" · ")}</div>
+    ${d.arch ? `<div class="banner ok" style="margin:0 0 18px"><span>📦</span><div><b>보관 중인 레시피예요.</b><br>학습과 레시피 목록에는 나오지 않습니다.</div></div>` : ""}
+    ${detailHTML(d)}
+    <button class="cta" id="sheetEdit" style="margin-top:22px">수정하기</button>
+    ${d.arch ? "" : `<button class="cta ghost" id="sheetStudy">이 메뉴만 학습</button>`}
+    <button class="cta ghost" id="sheetArch">${d.arch ? "보관 해제하기" : "보관하기"}</button>
+    <button class="cta danger" id="sheetDel">삭제하기</button>`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#sheetEdit").addEventListener("click", ()=>{ closeSheet(); openEditor(d.id); });
+  if($("#sheetStudy")) $("#sheetStudy").addEventListener("click", ()=>{
+    closeSheet();
+    setTimeout(()=>openModeSheet([d], d.name), 220);   // 시트를 닫았다가 방식 시트로 갈아끼운다
+  });
+  $("#sheetArch").addEventListener("click", ()=>{
+    closeSheet();
+    if(d.arch){
+      setArch(d.id, false);
+      toast("보관을 해제했어요");
+      renderArch(); renderList(); renderHome();
+      return;
+    }
+    confirmBox("레시피 보관",
+      `“${d.name}”를 보관할까요? 내용은 그대로 남고 학습과 목록에서만 빠집니다. 보관함에서 언제든 되돌릴 수 있어요.`,
+      "보관", ()=>{
+        setArch(d.id, true);
+        toast("보관함으로 옮겼어요");
+        renderList(); renderHome();
+      });
+  });
+  $("#sheetDel").addEventListener("click", ()=>{
+    closeSheet();
+    confirmBox("레시피 삭제", `“${d.name}”를 삭제할까요? 되돌릴 수 없어요.`, "삭제", ()=>{
+      data.drinks = data.drinks.filter(x=>x.id!==d.id);
+      rm(data.mastered,d.id); rm(data.needReview,d.id);
+      persist(); toast("삭제했어요");
+      if($("#s-arch").classList.contains("active")) renderArch();
+      renderList(); renderHome();
+    });
+  });
+}
+function closeSheet(){ $("#mask").classList.remove("on"); $("#sheet").classList.remove("on"); }
+$("#mask").addEventListener("click", closeSheet);
+
+/* =========================================================
+   사진 텍스트 → 레시피 구조 변환 (전부 기기 안에서 처리)
+   ========================================================= */
+const UNIT = "(?:ml|mL|ML|cc|CC|리터|L|g|G|kg|oz|OZ|온스|샷|shot|펌프|pump|스푼|티스푼|테이블스푼|tsp|tbsp|스쿱|scoop|큐브|알|개|장|조각|줄기|컵|봉|팩|방울|%|℃|도|초|분)";
+const NUM = "\\d+(?:[.,]\\d+)?";
+const QTY_RE = new RegExp("(" + NUM + "\\s*(?:[~\\-–]\\s*" + NUM + ")?\\s*" + UNIT + "(?:\\s*\\([^)]{0,20}\\))?)", "i");
+const QTY_TAIL_RE = new RegExp("(" + NUM + "\\s*(?:[~\\-–]\\s*" + NUM + ")?\\s*" + UNIT + "(?:\\s*\\([^)]{0,20}\\))?)\\s*$", "i");
+const LOOSE_QTY = /(적당량|약간|기호껏|기호에\s*맞게|취향껏|취향에\s*맞게|한\s*스푼)/i;
+const CIRCLED = "[\\u2460-\\u2473\\u2776-\\u277F\\u278A-\\u2793]";
+const STEP_NO = new RegExp("^\\s*(?:\\d{1,2}\\s*[.)\\]]|" + CIRCLED + "|step\\s*\\d|\\d{1,2}\\s+(?=[^\\s].{7,}$))", "i");
+
+const HEAD = [
+  {re:/^(재\s*료|부\s*재\s*료|재료\s*구성|ingredients?)\s*[:：]?\s*$/i, mode:"ing"},
+  {re:/^(만드는\s*법|제조\s*순서|제조\s*방법|만드는\s*방법|순\s*서|과\s*정|조리법|레시피\s*순서|steps?|method)\s*[:：]?\s*$/i, mode:"step"},
+  {re:/^(팁|포인트|주의|주의사항|메모|note|tip)s?\s*[:：]?\s*$/i, mode:"tip"}
+];
+const CAT_HINT = [
+  {cat:"coffee", re:/(에스프레소|espresso|아메리카노|americano|카페\s?라\s?떼|카푸치노|cappuccino|모카|mocha|콜드\s?브루|cold\s?brew|드립|핸드드립|커피|coffee|아인슈페너|einspanner|플랫\s?화이트|마키아또|비엔나|바닐라\s?라\s?떼|연유\s?라\s?떼|샷)/i},
+  {cat:"tea",    re:/(아이스티|밀크티|말차|녹차|홍차|보리차|캐모마일|얼그레이|페퍼민트|루이보스|우롱|자스민|tea|스무디|smoothie|프라페|초코|쇼콜라|코코아|딸기|바나나|요거트|미숫가루|차\s?라\s?떼)/i},
+  {cat:"ade",    re:/(에이드|ade|스파클링|탄산|소다|레몬|자몽|청귤|한라봉|자두|유자|매실|복분자|주스|juice|모히또|모히토|청\b)/i},
+  {cat:"coffee", re:/(라\s?떼|latte)/i}
+];
+const ICE_RE = /(아이스|ice|iced|콜드|cold|찬)/i;
+const HOT_RE = /(핫|따뜻|온음료|hot|웜)/i;
+const CUP_RE = /((?:\d{1,2}\s?(?:oz|온스))|(?:\d{2,4}\s?(?:ml|cc))\s*(?:잔|컵)|(?:레귤러|라지|스몰)\s*(?:사이즈)?|데미타세)/i;
+const TEMP_TOKEN = /(^|\s)(HOT|ICE[D]?|COLD|핫|아이스)(\s|$)/i;
+const STEP_END = /(다|요|것|기|해|줘|세요|하기|주기|넣기|붓기|섞기)\s*[.!]?$/;
+const STEP_VERB = /(붓|넣|섞|저어|젓|추출|스팀|올리|채우|담|풀|녹이|흔들|셰이크|가니시|마무리|올린|뿌리|뿌려|짜|거르|우려|우린|블렌|갈아|얹|따라|따른|데우|데운|휘핑|체에|내려|완성|쌓)/;
+const NOISE = /^(레시피|recipe|menu|메뉴|사진|photo|no\.?\s*\d+|page\s*\d+|\d+\s*\/\s*\d+)$/i;
+
+function pClean(l){
+  return l.replace(/^[\s·•▪◦○●\-–—*]+/,"").replace(/\s+$/,"").replace(/\s{2,}/g," ").trim();
+}
+function splitQty(line){
+  const labeled = line.match(/^(.+?)\s*[:：]\s*(.+)$/);
+  if(labeled && QTY_RE.test(labeled[2])) return [labeled[1].trim(), labeled[2].trim()];
+  const dotted = line.match(/^(.+?)[.\s]{3,}(.+)$/);
+  if(dotted && QTY_RE.test(dotted[2])) return [dotted[1].trim(), dotted[2].trim()];
+  const tail = line.match(QTY_TAIL_RE);
+  if(tail){
+    const nm = line.slice(0, tail.index).replace(/[\s\-–—:：]+$/,"").trim();
+    if(nm) return [nm, tail[1].trim()];
+  }
+  const head = line.match(QTY_RE);
+  if(head && head.index === 0){
+    const rest = line.slice(head[0].length).replace(/^[\s\-–—:：]+/,"").trim();
+    if(rest) return [rest, head[1].trim()];
+  }
+  if(line.length <= 30){
+    const loose = line.match(LOOSE_QTY);
+    if(loose){
+      const nm = line.replace(loose[0],"")
+        .replace(/\(\s*\)/g," ").replace(/[\s\-–—:：]+$/,"").replace(/^[\s\-–—:：]+/,"")
+        .replace(/\s{2,}/g," ").trim();
+      if(nm) return [nm, loose[0].trim()];
+    }
+  }
+  return null;
+}
+/* "말차가루 7g, 우유 250ml, (기호에 맞게) 연유" 처럼 한 줄에 콤마로 이어진 재료 */
+function splitCommaIng(line){
+  const parts = line.split(/\s*[,、]\s*/).map(s=>s.trim()).filter(Boolean);
+  if(parts.length < 2) return null;
+  if(parts.some(p=>p.length > 30)) return null;
+  const withQty = parts.filter(p=>QTY_RE.test(p) || LOOSE_QTY.test(p)).length;
+  if(withQty < Math.ceil(parts.length/2)) return null;
+  return parts.map(p=>splitQty(p) || [p,""]);
+}
+function looksLikeStep(line){
+  if(STEP_NO.test(line)) return true;
+  if(/^(step|스텝)\s*\d/i.test(line)) return true;
+  if(line.length >= 12 && STEP_VERB.test(line) && STEP_END.test(line)) return true;
+  if(line.length >= 20 && STEP_VERB.test(line)) return true;
+  return false;
+}
+function stripStepNum(l){
+  return l.replace(new RegExp("^\\s*(?:\\d{1,2}\\s*[.)\\]]|" + CIRCLED + "|step\\s*\\d+\\s*[:.)]?)\\s*","i"),"")
+          .replace(/^\s*\d{1,2}\s+(?=[^\s].{7,}$)/,"")
+          .trim();
+}
+function titleLine(line){
+  if(looksLikeStep(line)) return null;
+  let rest = line, cup = "", temp = "";
+  const c = rest.match(CUP_RE);
+  if(c){ cup = c[1].replace(/\s+/g,""); rest = rest.replace(c[1]," "); }
+  let t;
+  while((t = rest.match(TEMP_TOKEN))){
+    if(!temp) temp = /hot|핫/i.test(t[2]) ? "HOT" : "ICE";
+    rest = rest.replace(t[2]," ");
+  }
+  rest = rest.replace(/[\s\-–—:：]+$/,"").replace(/^[\s\-–—:：]+/,"").replace(/\s{2,}/g," ").trim();
+  if(!rest || rest.length > 26) return null;
+  if(QTY_RE.test(rest)) return null;
+  if(!/[가-힣A-Za-z]/.test(rest)) return null;
+  return {name:rest, cup:cup, temp:temp};
+}
+function isCupOnly(line){
+  const m = line.match(CUP_RE);
+  return !!m && m[1].replace(/\s+/g,"").length >= line.replace(/\s+/g,"").length - 1;
+}
+function guessCat(text){
+  for(let i=0;i<CAT_HINT.length;i++){ if(CAT_HINT[i].re.test(text)) return CAT_HINT[i].cat; }
+  return "coffee";
+}
+function preSplit(raw){
+  const text = String(raw||"");
+  const rows = text.split(/\r?\n/).filter(l=>l.trim());
+  const qtyCount = (text.match(new RegExp(NUM + "\\s*" + UNIT, "gi")) || []).length;
+  if(rows.length >= 3 || qtyCount < 2) return text;
+  return text.replace(new RegExp("(" + NUM + "\\s*(?:[~\\-–]\\s*" + NUM + ")?\\s*" + UNIT + ")","gi"), "$1\n");
+}
+function parseRecipeText(raw){
+  const warn = [];
+  const src = preSplit(raw);
+  if(src !== String(raw||"")) warn.push("줄이 뭉쳐 있어 나눠봤어요. 재료가 맞는지 확인해 주세요.");
+  let lines = src.split(/\r?\n/).map(pClean).filter(l=>l && !NOISE.test(l));
+  if(!lines.length) return null;
+
+  let mode = "auto", name = "", en = "", cup = "", temp = "", nameTaken = false;
+  const ing = [], steps = [], tips = [];
+
+  /* 해시태그 제목(#말차라떼)이 있으면 그게 메뉴명 — 그 앞의 로고/문구 줄은 버린다 */
+  const hi = lines.findIndex(l=>/^#\s*\S/.test(l));
+  if(hi >= 0){
+    name = lines[hi].replace(/^#\s*/,"").trim();
+    nameTaken = true;
+    lines = lines.slice(hi + 1);
+  }
+
+  for(let i=0;i<lines.length;i++){
+    let line = lines[i];
+    const head = HEAD.find(h=>h.re.test(line));
+    if(head){ mode = head.mode; continue; }
+
+    const inlineHead = line.match(/^(재\s*료|만드는\s*법|제조\s*순서|순\s*서|팁|포인트|주의)\s*[:：]\s*(.+)$/);
+    if(inlineHead){
+      mode = /재\s*료/.test(inlineHead[1]) ? "ing" : (/팁|포인트|주의/.test(inlineHead[1]) ? "tip" : "step");
+      line = inlineHead[2].trim();
+    }
+    const labelName = line.match(/^(메뉴\s*명?|음료\s*명?|이름|name)\s*[:：]\s*(.+)$/i);
+    if(labelName && !nameTaken){ name = labelName[2].trim(); nameTaken = true; continue; }
+    const labelCup = line.match(/^(컵|사이즈|잔|용량|size|cup)\s*[:：]\s*(.+)$/i);
+    if(labelCup){ cup = labelCup[2].trim(); continue; }
+    if(isCupOnly(line)){ if(!cup) cup = line.replace(/\s+/g,""); continue; }
+
+    if(!nameTaken && mode === "auto"){
+      const t = titleLine(line);
+      if(t){
+        name = t.name; nameTaken = true;
+        if(t.cup && !cup) cup = t.cup;
+        if(t.temp && !temp) temp = t.temp;
+        const m = name.match(/^(.*?)[\s(\[]+([A-Za-z][A-Za-z'&.\s-]{2,})[)\]]?$/);
+        if(m && /[가-힣]/.test(m[1])){ name = m[1].trim(); en = m[2].trim(); }
+        continue;
+      }
+    }
+    if(mode === "tip"){ tips.push(stripStepNum(line)); continue; }
+
+    const numbered = STEP_NO.test(line);
+    if(!numbered && mode !== "step"){
+      const multi = splitCommaIng(line);
+      if(multi){ multi.forEach(pp=>ing.push(pp)); mode = "ing"; continue; }
+    }
+    const q = numbered ? null : splitQty(line);
+    if(q && mode !== "step"){ ing.push(q); continue; }
+    if(mode === "step" || numbered || looksLikeStep(line)){
+      const s = stripStepNum(line); if(s) steps.push(s); continue;
+    }
+    if(q){ ing.push(q); continue; }
+    if(mode === "ing" && line.length < 30){ ing.push([line,""]); continue; }
+    if(line.length >= 10){ steps.push(line); continue; }
+    if(line.length >= 4) tips.push(line);
+  }
+
+  const all = lines.join(" ");
+  if(!temp){
+    if(ICE_RE.test(all) && HOT_RE.test(all)) temp = "ICE/HOT";
+    else if(HOT_RE.test(all)) temp = "HOT";
+    else temp = "ICE";
+  }
+  if(!cup){ const c = all.match(CUP_RE); if(c) cup = c[1].replace(/\s+/g,""); }
+  if(!name) warn.push("메뉴 이름을 찾지 못했어요. 직접 입력해 주세요.");
+  if(!ing.length) warn.push("재료를 찾지 못했어요.");
+  if(!steps.length) warn.push("제조 순서를 찾지 못했어요.");
+
+  return {name:name, en:en, cat:guessCat(all), temp:temp, cup:cup, ing:ing, steps:steps, tip:tips.join("\n"), warn:warn};
+}
+
+/* ---------- 가져오기 화면 ---------- */
+function openImport(){
+  $("#ocrBox").value = ""; $("#prevWrap").innerHTML = ""; go("import"); $("#s-import .scroll").scrollTop = 0;
+}
+$("#impClose").addEventListener("click", ()=>go("list"));
+$("#pasteBtn").addEventListener("click", async ()=>{
+  try{
+    if(navigator.clipboard && navigator.clipboard.readText){
+      const t = await navigator.clipboard.readText();
+      if(t && t.trim()){ $("#ocrBox").value = t; toast("붙여넣었어요"); return; }
+      toast("클립보드가 비어 있어요");
+    } else toast("칸을 길게 눌러 붙여넣기 해주세요");
+  }catch(e){ toast("칸을 길게 눌러 붙여넣기 해주세요"); }
+});
+$("#parseBtn").addEventListener("click", ()=>{
+  const text = $("#ocrBox").value;
+  if(!text.trim()){ toast("먼저 텍스트를 붙여넣어 주세요"); return; }
+  const r = parseRecipeText(text);
+  if(!r){ toast("읽을 내용이 없어요"); return; }
+  const parsedCat = catLabel(r.cat);
+  $("#prevWrap").innerHTML = `
+    ${r.warn.length?`<div class="warnbox">${r.warn.map(esc).join("<br>")}</div>`:""}
+    <div class="prevcard">
+      <h4>${r.name?esc(r.name):"(이름 없음)"}</h4>
+      <div class="sub">${[r.temp,r.cup,parsedCat].filter(Boolean).map(esc).join(" · ")}</div>
+      ${r.ing.length?`<div class="blk"><div class="lb">재료 ${r.ing.length}개</div>
+        ${r.ing.map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("")}</div>`:""}
+      ${r.steps.length?`<div class="blk"><div class="lb">순서 ${r.steps.length}단계</div>
+        <ol class="steps">${r.steps.map(s=>`<li>${esc(s)}</li>`).join("")}</ol></div>`:""}
+      ${r.tip?`<div class="blk" style="margin-bottom:0"><div class="lb">기억 포인트</div><div class="tipbox">${esc(r.tip)}</div></div>`:""}
+    </div>
+    <button class="cta" id="toEditor">확인하고 편집하기</button>`;
+  $("#toEditor").addEventListener("click", ()=>openEditor(null, r));
+  const sc = $("#s-import .scroll");
+  sc.scrollTo({top: $("#prevWrap").offsetTop - 12, behavior:"smooth"});
+});
+
+/* 레시피에 딸린 부재료를 펼쳐 보여준다 (학습 카드에는 안 나온다) */
+function subsHTML(d){
+  const subs = subsOf(d);
+  if(!subs.length) return "";
+  return `<div class="blk subsect" style="margin-bottom:0">
+    <div class="lb">부재료 레시피</div>
+    <p class="cap">따로 만들어 두는 재료예요. 학습 카드에는 나오지 않습니다.</p>
+    ${subs.map(s=>`<div class="subblk">
+      <h5>${esc(s.name)}${(s.place||s.dur)?`<span style="margin-left:auto;font-size:11.5px;font-weight:800;padding:4px 9px;border-radius:8px;background:var(--accent-soft);color:var(--accent-ink)">${esc([s.place,s.dur].filter(Boolean).join(" "))}</span>`:""}</h5>
+      ${(s.ing||[]).length ? (s.ing||[]).map(i=>`<div class="ing"><b>${esc(i[0])}</b><span>${esc(i[1])}</span></div>`).join("") : ""}
+      ${(s.steps||[]).length ? `<ol class="steps" style="margin-top:10px">${s.steps.map(t=>`<li>${esc(t)}</li>`).join("")}</ol>` : ""}
+      ${s.tip ? `<div class="tipbox" style="margin-top:10px">${esc(s.tip)}</div>` : ""}
+    </div>`).join("")}</div>`;
+}
+
+/* ---------- 편집기 ---------- */
+function ingRow(name,amt){
+  const w = document.createElement("div"); w.className = "dyn-row";
+  w.innerHTML = `<input type="text" class="nm" placeholder="재료" autocomplete="off">
+    <input type="text" class="amt" placeholder="용량" autocomplete="off">
+    ${ORD_HTML}
+    <button class="del" type="button">−</button>`;
+  w.querySelector(".nm").value = name||""; w.querySelector(".amt").value = amt||"";
+  bindOrd(w);
+  w.querySelector(".del").addEventListener("click", ()=>{ const b=w.parentNode; w.remove(); if(b) refreshOrd(b); });
+  return w;
+}
+function stepRow(text){
+  const w = document.createElement("div"); w.className = "dyn-row";
+  w.innerHTML = `<span class="stepnum"></span><input type="text" class="st" placeholder="예: 얼음 130g을 채운다" autocomplete="off">
+    ${ORD_HTML}
+    <button class="del" type="button">−</button>`;
+  w.querySelector(".st").value = text||"";
+  bindOrd(w, renumber);
+  w.querySelector(".del").addEventListener("click", ()=>{ const b=w.parentNode; w.remove(); renumber(); if(b) refreshOrd(b); });
+  return w;
+}
+/* 줄을 위아래로 옮긴다 (지우고 다시 쓰지 않아도 되게) */
+const ORD_HTML = `<span class="ord">
+    <button type="button" class="up" aria-label="위로">▲</button>
+    <button type="button" class="dn" aria-label="아래로">▼</button>
+  </span>`;
+function refreshOrd(box, after){
+  const rows = Array.from(box.querySelectorAll(":scope > .dyn-row"));
+  rows.forEach((r,i)=>{
+    const u = r.querySelector(".up"), d = r.querySelector(".dn");
+    if(u) u.disabled = (i === 0);
+    if(d) d.disabled = (i === rows.length - 1);
+  });
+  if(after) after();
+}
+function bindOrd(w, after){
+  const move = dir => {
+    const box = w.parentNode; if(!box) return;
+    if(dir < 0){
+      const prev = w.previousElementSibling;
+      if(prev && prev.classList.contains("dyn-row")) box.insertBefore(w, prev);
+    } else {
+      const next = w.nextElementSibling;
+      if(next && next.classList.contains("dyn-row")) box.insertBefore(next, w);
+    }
+    refreshOrd(box, after);
+  };
+  w.querySelector(".up").addEventListener("click", ()=>move(-1));
+  w.querySelector(".dn").addEventListener("click", ()=>move(1));
+}
+function renumber(){
+  document.querySelectorAll("#e-steps .stepnum").forEach((el,i)=>el.textContent = (i+1)+".");
+}
+const CUP_PRESETS = ["8oz","12oz","16oz","20oz"];
+
+/* 컵 사이즈는 여러 개 고를 수 있다 (프리셋 + 직접 입력) */
+function renderCupPicks(){
+  const box = $("#e-cups");
+  const items = CUP_PRESETS.map(name=>({key:name, label:name}))
+                 .concat([{key:"__custom", label:"직접 입력"}]);
+  box.innerHTML = items.map(it=>{
+    const on = (it.key === "__custom") ? state.cupCustom : state.cupSel.indexOf(it.key) >= 0;
+    return `<button type="button" class="pick${on?" on":""}" data-k="${it.key}">
+      <span class="box">✓</span>${esc(it.label)}</button>`;
+  }).join("");
+  box.querySelectorAll(".pick").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const k = btn.dataset.k;
+      if(k === "__custom"){
+        state.cupCustom = !state.cupCustom;
+        if(!state.cupCustom) $("#e-cup").value = "";
+      } else {
+        const i = state.cupSel.indexOf(k);
+        if(i >= 0) state.cupSel.splice(i,1); else state.cupSel.push(k);
+      }
+      renderCupPicks();
+      $("#e-cup").style.display = state.cupCustom ? "block" : "none";
+      if(k === "__custom" && state.cupCustom) $("#e-cup").focus();
+    });
+  });
+  $("#e-cup").style.display = state.cupCustom ? "block" : "none";
+}
+function setCupField(list){
+  const arr = Array.isArray(list) ? list.slice() : (list ? [String(list)] : []);
+  state.cupSel = [];
+  state.cupCustom = false;
+  let custom = "";
+  arr.forEach(v=>{
+    const val = String(v||"").trim();
+    if(!val) return;
+    let hit = "";
+    for(let i=0;i<CUP_PRESETS.length;i++){
+      if(CUP_PRESETS[i].toLowerCase() === val.toLowerCase()) hit = CUP_PRESETS[i];
+    }
+    if(hit){ if(state.cupSel.indexOf(hit) < 0) state.cupSel.push(hit); }
+    else custom = custom ? (custom + ", " + val) : val;
+  });
+  if(custom){ state.cupCustom = true; $("#e-cup").value = custom; }
+  else $("#e-cup").value = "";
+  renderCupPicks();
+}
+function readCupField(){
+  const out = CUP_PRESETS.filter(n=>state.cupSel.indexOf(n) >= 0);
+  if(state.cupCustom){
+    $("#e-cup").value.split(",").map(s=>s.trim()).filter(Boolean).forEach(v=>out.push(v));
+  }
+  return out;
+}
+
+function openEditor(id, draft){
+  state.editingId = id;
+  const d = draft || (id ? data.drinks.find(x=>x.id===id) : null);
+  $("#editTitle").textContent = id ? "레시피 수정" : (draft ? "사진에서 가져온 레시피" : "레시피 추가");
+  $("#e-cat").innerHTML = data.cats.map(c=>`<option value="${esc(c.id)}">${esc(c.label)}</option>`).join("");
+  $("#e-name").value = d?d.name:"";
+  $("#e-en").value = d?(d.en||""):"";
+  $("#e-cat").value = (d && catOf(d.cat)) ? d.cat : firstCatId();
+  $("#e-temp").value = d?(d.temp||"ICE"):"ICE";
+  setCupField(d ? (d.cups || (d.cup ? [d.cup] : [])) : []);
+  $("#e-tip").value = d?(d.tip||""):"";
+  const ib = $("#e-ing"); ib.innerHTML = "";
+  const ings = d && d.ing.length ? d.ing : [["",""],["",""]];
+  ings.forEach(p=>ib.appendChild(ingRow(p[0],p[1])));
+  const sb = $("#e-steps"); sb.innerHTML = "";
+  const sts = d && d.steps.length ? d.steps : ["",""];
+  sts.forEach(s=>sb.appendChild(stepRow(s)));
+  renumber(); refreshOrd(ib); refreshOrd(sb);
+  state.editSubRefs = (d && Array.isArray(d.subRefs)) ? d.subRefs.filter(subById) : [];
+  renderSubs();
+  $("#delBtn").style.display = id ? "block" : "none";
+  go("edit");
+  $("#s-edit .scroll").scrollTop = 0;
+}
+
+/* 편집 중인 본문을 잠깐 담아뒀다가 부재료 화면에서 돌아올 때 복원한다 */
+function readEditorForm(){
+  return {
+    name:$("#e-name").value, en:$("#e-en").value, cat:$("#e-cat").value,
+    temp:$("#e-temp").value, cups:readCupField(), tip:$("#e-tip").value,
+    ing:Array.from(document.querySelectorAll("#e-ing .dyn-row"))
+        .map(r=>[r.querySelector(".nm").value, r.querySelector(".amt").value]),
+    steps:Array.from(document.querySelectorAll("#e-steps .st")).map(i=>i.value)
+  };
+}
+function writeEditorForm(f){
+  $("#e-name").value=f.name; $("#e-en").value=f.en;
+  $("#e-cat").value=f.cat; $("#e-temp").value=f.temp;
+  setCupField(f.cups); $("#e-tip").value=f.tip;
+  const ib=$("#e-ing"); ib.innerHTML="";
+  (f.ing.length?f.ing:[["",""]]).forEach(p=>ib.appendChild(ingRow(p[0],p[1])));
+  const sb=$("#e-steps"); sb.innerHTML="";
+  (f.steps.length?f.steps:[""]).forEach(s=>sb.appendChild(stepRow(s)));
+  renumber(); refreshOrd($("#e-ing")); refreshOrd(sb);
+}
+function renderSubs(){
+  const box = $("#e-subs");
+  const subs = state.editSubRefs.map(subById).filter(Boolean);
+  box.innerHTML = subs.length
+    ? subs.map(s=>{
+        const others = usesOf(s.id).filter(d=>d.id !== state.editingId).length;
+        return `<button type="button" class="subrow" data-id="${esc(s.id)}">
+         <b>${esc(s.name || "(이름 없음)")}</b>
+         <span>${others ? "다른 메뉴 "+others+"곳과 공유"
+           : ((s.place||s.dur) ? esc([s.place,s.dur].filter(Boolean).join(" ")) : "재료 "+(s.ing||[]).filter(p=>p[0]||p[1]).length+"개")}</span>
+         <span style="color:var(--accent)">수정</span>
+       </button>`;
+      }).join("")
+    : `<div style="font-size:13px;color:var(--muted);padding:2px 0 8px">등록된 부재료가 없어요.</div>`;
+  box.querySelectorAll(".subrow").forEach(btn=>{
+    btn.addEventListener("click", ()=>openSubEditor(btn.dataset.id, "edit"));
+  });
+}
+/* 부재료 추가 — 이미 만들어 둔 것이 있으면 새로 만들지 말고 고르게 한다 */
+function openSubPickSheet(){
+  const avail = subsSorted().filter(s=>state.editSubRefs.indexOf(s.id) < 0);
+  if(!avail.length){ openSubEditor(null, "edit"); return; }
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">부재료 추가</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:20px">이미 등록해 둔 부재료를 고르면 다시 입력하지 않아도 돼요</div>
+    <button class="row" id="subNew">
+      <span class="emo">✏️</span>
+      <span class="meta"><b>새로 만들기</b><span>재료와 순서를 새로 입력합니다</span></span>
+    </button>
+    <div class="lb" style="margin:20px 0 10px">등록된 부재료</div>
+    ${avail.map(s=>{
+      const n = usesOf(s.id).length;
+      return `<button class="row" data-pick="${esc(s.id)}">
+        <span class="subb">부재료</span>
+        <span class="meta"><b>${esc(s.name)}</b><span>${n ? n+"개 메뉴에서 사용 중" : "아직 연결된 메뉴 없음"}</span></span>
+      </button>`;
+    }).join("")}`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#subNew").addEventListener("click", ()=>{ closeSheet(); openSubEditor(null, "edit"); });
+  $("#sheetBody").querySelectorAll("[data-pick]").forEach(b=>b.addEventListener("click", ()=>{
+    const id = b.dataset.pick;
+    if(state.editSubRefs.indexOf(id) < 0) state.editSubRefs.push(id);
+    closeSheet(); renderSubs();
+    toast("담았어요. 레시피를 저장하면 연결됩니다");
+  }));
+}
+
+/* ---------- 부재료 편집 화면 ---------- */
+function openSubEditor(subId, from){
+  state.subFrom = (from === "list") ? "list" : "edit";
+  state.parentForm = (state.subFrom === "edit") ? readEditorForm() : null;
+  state.subEditId = subId || null;
+  const s = subId ? subById(subId) : null;
+  $("#subTitle").textContent = s ? "부재료 수정" : "부재료 추가";
+  if(state.subFrom === "edit"){
+    const others = s ? usesOf(s.id).filter(d=>d.id !== state.editingId).map(d=>d.name) : [];
+    $("#subParent").textContent = others.length
+      ? "여기서 고치면 " + others.join(" · ") + " 에도 함께 반영돼요"
+      : ($("#e-name").value.trim() || "레시피") + " 에 넣을 재료";
+  } else {
+    const uses = s ? usesOf(s.id).map(d=>d.name) : [];
+    $("#subParent").textContent = s
+      ? (uses.length ? uses.join(" · ") + " 에 사용 중" : "아직 연결된 메뉴가 없어요")
+      : "저장한 뒤 쓰이는 메뉴를 연결할 수 있어요";
+  }
+  $("#s-name").value = s ? s.name : "";
+  $("#s-tip").value  = s ? (s.tip||"") : "";
+  $("#s-dur").value  = s ? (s.dur||"") : "";
+  state.subPlace = s ? (s.place||"") : "";
+  drawSubPlaces();
+  const ib=$("#s-ing"); ib.innerHTML="";
+  const ings = (s && s.ing.length) ? s.ing : [["",""],["",""]];
+  ings.forEach(p=>ib.appendChild(ingRow(p[0],p[1])));
+  const sb=$("#s-steps"); sb.innerHTML="";
+  const sts = (s && s.steps.length) ? s.steps : [""];
+  sts.forEach(t=>sb.appendChild(subStepRow(t)));
+  renumberSub(); refreshOrd(ib); refreshOrd(sb);
+  /* 레시피 안에서 열었을 땐 "빼기"(연결만 끊기), 부재료 탭에서 열었을 땐 진짜 삭제 */
+  $("#subDel").style.display = s ? "block" : "none";
+  $("#subDel").textContent = (state.subFrom === "edit") ? "이 레시피에서 빼기" : "이 부재료 삭제";
+  $("#subDel").classList.toggle("ghost", state.subFrom === "edit");
+  $("#subDel").classList.toggle("danger", state.subFrom !== "edit");
+  go("sub");
+  $("#s-sub .scroll").scrollTop = 0;
+}
+function drawSubPlaces(){
+  const box = $("#s-place");
+  box.innerHTML = PLACES.map(pn=>
+    `<button type="button" class="pick${state.subPlace===pn?" on":""}" data-p="${pn}"><span class="box">✓</span>${pn}</button>`).join("");
+  box.querySelectorAll(".pick").forEach(b=>b.addEventListener("click",()=>{
+    state.subPlace = (state.subPlace === b.dataset.p) ? "" : b.dataset.p;
+    drawSubPlaces();
+  }));
+}
+function subStepRow(text){
+  const w=document.createElement("div"); w.className="dyn-row";
+  w.innerHTML=`<span class="stepnum"></span><input type="text" class="st" placeholder="예: 설탕과 1:1로 재운다" autocomplete="off">
+    ${ORD_HTML}
+    <button class="del" type="button">−</button>`;
+  w.querySelector(".st").value = text||"";
+  bindOrd(w, renumberSub);
+  w.querySelector(".del").addEventListener("click", ()=>{ const b=w.parentNode; w.remove(); renumberSub(); if(b) refreshOrd(b); });
+  return w;
+}
+function renumberSub(){
+  document.querySelectorAll("#s-steps .stepnum").forEach((el,i)=>el.textContent=(i+1)+".");
+}
+function leaveSubEditor(){
+  if(state.subFrom === "edit"){
+    go("edit");
+    if(state.parentForm){ writeEditorForm(state.parentForm); state.parentForm = null; }
+    renderSubs();
+  } else {
+    state.listTab = "sub";
+    go("list");
+  }
+}
+$("#addSub").addEventListener("click", openSubPickSheet);
+$("#addSubIng").addEventListener("click", ()=>{ const b=$("#s-ing"); b.appendChild(ingRow()); refreshOrd(b); });
+$("#addSubStep").addEventListener("click", ()=>{ const b=$("#s-steps"); b.appendChild(subStepRow()); renumberSub(); refreshOrd(b); });
+$("#subClose").addEventListener("click", leaveSubEditor);
+$("#subSave").addEventListener("click", ()=>{
+  const name = $("#s-name").value.trim();
+  if(!name){ toast("부재료 이름을 입력해 주세요"); $("#s-name").focus(); return; }
+  const dup = data.subs.find(x=>x.id !== state.subEditId
+    && String(x.name||"").trim().toLowerCase() === name.toLowerCase());
+  if(dup){
+    confirmBox("같은 이름이 있어요",
+      `“${dup.name}”가 이미 등록돼 있어요. 배합이 다른 별개의 재료라면 그대로 저장하고, 같은 것이라면 취소한 뒤 기존 것을 연결해 주세요.`,
+      "그대로 저장", ()=>commitSub(name));
+    return;
+  }
+  commitSub(name);
+});
+function commitSub(name){
+  const rec = {
+    id: state.subEditId || uid(),
+    name: name,
+    ing: Array.from(document.querySelectorAll("#s-ing .dyn-row"))
+          .map(r=>[r.querySelector(".nm").value.trim(), r.querySelector(".amt").value.trim()])
+          .filter(p=>p[0]||p[1]),
+    steps: Array.from(document.querySelectorAll("#s-steps .st")).map(i=>i.value.trim()).filter(Boolean),
+    tip: $("#s-tip").value.trim(),
+    place: state.subPlace,
+    dur: $("#s-dur").value.trim()
+  };
+  const i = data.subs.findIndex(x=>x.id===rec.id);
+  if(i >= 0) data.subs[i] = rec; else data.subs.push(rec);
+  persist();
+  if(state.subFrom === "edit"){
+    if(state.editSubRefs.indexOf(rec.id) < 0) state.editSubRefs.push(rec.id);
+    const others = usesOf(rec.id).filter(d=>d.id !== state.editingId).length;
+    toast(others ? `저장했어요. 다른 메뉴 ${others}곳에도 반영됩니다`
+                 : "부재료를 담았어요. 레시피를 저장하면 연결됩니다");
+  } else {
+    toast(Store.available ? "저장했어요" : "저장했지만 기기에 남지 않아요");
+  }
+  state.subEditId = rec.id;
+  leaveSubEditor();
+}
+$("#subDel").addEventListener("click", ()=>{
+  const s = state.subEditId ? subById(state.subEditId) : null;
+  if(!s) return;
+  if(state.subFrom === "edit"){
+    confirmBox("부재료 빼기",
+      `“${s.name}”를 이 레시피에서만 뺄까요? 부재료 자체는 목록에 남고 다른 메뉴의 연결도 그대로예요.`,
+      "빼기", ()=>{
+        state.editSubRefs = state.editSubRefs.filter(x=>x!==s.id);
+        leaveSubEditor();
+      });
+    return;
+  }
+  const n = usesOf(s.id).length;
+  confirmBox("부재료 삭제",
+    `“${s.name}”를 삭제할까요?` + (n ? ` 연결된 메뉴 ${n}곳에서도 함께 빠집니다.` : "") + " 되돌릴 수 없어요.",
+    "삭제", ()=>{ deleteSub(s.id); toast("삭제했어요"); leaveSubEditor(); });
+});
+$("#addIng").addEventListener("click", ()=>{ const b=$("#e-ing"); b.appendChild(ingRow()); refreshOrd(b); });
+$("#addStep").addEventListener("click", ()=>{ const b=$("#e-steps"); b.appendChild(stepRow()); renumber(); refreshOrd(b); });
+$("#editClose").addEventListener("click", ()=>go("list"));
+
+$("#saveBtn").addEventListener("click", ()=>{
+  const name = $("#e-name").value.trim();
+  if(!name){ toast("메뉴 이름을 입력해 주세요"); $("#e-name").focus(); return; }
+  const ing = Array.from(document.querySelectorAll("#e-ing .dyn-row"))
+    .map(r=>[r.querySelector(".nm").value.trim(), r.querySelector(".amt").value.trim()])
+    .filter(p=>p[0] || p[1]);
+  if(!ing.length){ toast("재료를 하나 이상 입력해 주세요"); return; }
+  const steps = Array.from(document.querySelectorAll("#e-steps .st")).map(i=>i.value.trim()).filter(Boolean);
+  const rec = {
+    id: state.editingId || uid(),
+    cat: $("#e-cat").value, name: name, en: $("#e-en").value.trim(),
+    temp: $("#e-temp").value, cups: readCupField(),
+    ing: ing, steps: steps, tip: $("#e-tip").value.trim(),
+    /* 저장할 때 레코드를 새로 만들기 때문에 보관 상태를 명시적으로 물려받아야 한다.
+       안 그러면 보관해 둔 레시피를 고치는 순간 학습에 다시 튀어나온다 */
+    arch: state.editingId ? !!(data.drinks.find(x=>x.id===state.editingId)||{}).arch : false,
+    subRefs: state.editSubRefs.filter(subById)
+  };
+  if(state.editingId){
+    const i = data.drinks.findIndex(x=>x.id===state.editingId);
+    if(i>=0) data.drinks[i] = rec; else data.drinks.push(rec);
+  } else data.drinks.push(rec);
+  persist();
+  toast(Store.available ? "저장했어요" : "저장했지만 기기에 남지 않아요");
+  go("list");
+});
+
+$("#delBtn").addEventListener("click", ()=>{
+  const id = state.editingId; if(!id) return;
+  const d = data.drinks.find(x=>x.id===id);
+  confirmBox("레시피 삭제", `“${d?d.name:""}”를 삭제할까요? 되돌릴 수 없어요.`, "삭제", ()=>{
+    data.drinks = data.drinks.filter(x=>x.id!==id);
+    rm(data.mastered,id); rm(data.needReview,id);
+    persist(); toast("삭제했어요"); go("list");
+  });
+});
+
+/* ---------- 설정 ---------- */
+/* =========================================================
+   PIN 잠금 — 저장된 값은 되돌릴 수 없는 형태로만 남긴다
+   (암호화는 아니고, 눈으로 못 읽게 하는 정도)
+   ========================================================= */
+function pinHash(s){
+  let a = 0x811c9dc5;
+  const salt = "brewnote";
+  const t = salt + String(s) + salt;
+  for(let i=0;i<t.length;i++){
+    a ^= t.charCodeAt(i);
+    a = (a * 0x01000193) >>> 0;
+  }
+  return a.toString(16);
+}
+const lock = {mode:"enter", buf:"", first:"", onDone:null};
+
+function drawDots(){
+  const n = lock.buf.length;
+  $("#lockDots").innerHTML = [0,1,2,3].map(i=>`<i class="${i<n?"on":""}"></i>`).join("");
+}
+function drawKeys(){
+  const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+  $("#lockKeys").innerHTML = keys.map(k=>
+    k === "" ? `<button class="blank" type="button"></button>`
+             : `<button type="button" class="${k==="⌫"?"act":""}" data-k="${k}">${k}</button>`).join("");
+  $("#lockKeys").querySelectorAll("[data-k]").forEach(b=>b.addEventListener("click",()=>pressKey(b.dataset.k)));
+}
+function lockBad(msg){
+  const d = $("#lockDots");
+  d.classList.remove("bad"); void d.offsetWidth; d.classList.add("bad");
+  lock.buf = ""; drawDots();
+  if(msg) $("#lockSub").textContent = msg;
+}
+function pressKey(k){
+  if(k === "⌫"){ lock.buf = lock.buf.slice(0,-1); drawDots(); return; }
+  if(lock.buf.length >= 4) return;
+  lock.buf += k; drawDots();
+  if(lock.buf.length < 4) return;
+  const val = lock.buf;
+  setTimeout(()=>{
+    if(lock.mode === "enter"){
+      if(pinHash(val) === data.pin){ closeLock(); }
+      else lockBad("번호가 맞지 않아요");
+    } else if(lock.mode === "new"){
+      lock.first = val; lock.buf = ""; lock.mode = "confirm";
+      $("#lockTitle").textContent = "한 번 더 입력하세요";
+      $("#lockSub").textContent = "확인용이에요";
+      drawDots();
+    } else {
+      if(val === lock.first){
+        data.pin = pinHash(val); persist();
+        closeLock(); renderSettings(); toast("PIN을 설정했어요");
+      } else {
+        lock.mode = "new"; lock.first = "";
+        $("#lockTitle").textContent = "PIN을 정해주세요";
+        lockBad("두 번이 달라요. 다시 입력해 주세요");
+      }
+    }
+  }, 90);
+}
+function openLock(mode){
+  lock.mode = mode; lock.buf = ""; lock.first = "";
+  $("#lockTitle").textContent = mode === "enter" ? "PIN을 입력하세요" : "PIN을 정해주세요";
+  $("#lockSub").textContent   = mode === "enter" ? "이 기기에서만 확인합니다" : "네 자리 숫자를 입력해 주세요";
+  $("#lockCancel").style.display = mode === "enter" ? "none" : "block";
+  $("#lockMascot").innerHTML = mouseSVG(typeof currentMood === "function" ? currentMood() : "day");
+  drawDots(); drawKeys();
+  $("#lock").classList.add("on");
+}
+function closeLock(){ $("#lock").classList.remove("on"); lock.buf = ""; }
+$("#lockCancel").addEventListener("click", closeLock);
+
+function renderPinCard(){
+  const on = !!data.pin;
+  $("#pinToggle").textContent = on ? "PIN 해제하기" : "PIN 설정하기";
+  $("#pinToggle").classList.toggle("danger", on);
+  $("#pinToggle").classList.toggle("ghost", !on);
+}
+$("#pinToggle").addEventListener("click", ()=>{
+  if(data.pin){
+    confirmBox("PIN 해제", "앱을 열 때 더 이상 번호를 묻지 않습니다.", "해제", ()=>{
+      data.pin = null; persist(); renderPinCard(); toast("해제했어요");
+    });
+  } else openLock("new");
+});
+
+/* ---------- 카테고리 관리 ---------- */
+function renderCats(){
+  const box = $("#catList");
+  box.innerHTML = data.cats.map((c,i)=>`
+    <div class="catrow">
+      <button type="button" class="ce" data-edit="${i}" style="background:none;border:none;padding:0">${esc(c.emo)}</button>
+      <button type="button" class="cl" data-edit="${i}" style="background:none;border:none;padding:0;text-align:left">${esc(c.label)}</button>
+      <span class="cn">${data.drinks.filter(d=>d.cat===c.id).length}개</span>
+      <button class="minibtn" data-up="${i}"${i===0?" disabled":""}>↑</button>
+      <button class="minibtn" data-down="${i}"${i===data.cats.length-1?" disabled":""}>↓</button>
+      <button class="minibtn warn" data-del="${i}">✕</button>
+    </div>`).join("");
+  box.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click",()=>openCatSheet(+b.dataset.edit)));
+  box.querySelectorAll("[data-up]").forEach(b=>b.addEventListener("click",()=>moveCat(+b.dataset.up,-1)));
+  box.querySelectorAll("[data-down]").forEach(b=>b.addEventListener("click",()=>moveCat(+b.dataset.down,1)));
+  box.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click",()=>delCat(+b.dataset.del)));
+}
+function moveCat(i, dir){
+  const j = i + dir;
+  if(j < 0 || j >= data.cats.length) return;
+  const t = data.cats[i]; data.cats[i] = data.cats[j]; data.cats[j] = t;
+  persist(); renderCats();
+}
+function openCatSheet(idx){
+  const c = (idx === null) ? {emo:"🥤", label:""} : data.cats[idx];
+  $("#sheetBody").innerHTML = `
+    <h2 style="margin:0 0 4px;font-size:21px;font-weight:800;letter-spacing:-.4px">${idx===null?"카테고리 추가":"카테고리 수정"}</h2>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px">이모지와 이름을 정해주세요</div>
+    <div class="two">
+      <div class="fld" style="flex:0 0 88px"><label>이모지</label>
+        <input type="text" id="c-emo" maxlength="4" value="${esc(c.emo)}" style="text-align:center;font-size:20px"></div>
+      <div class="fld"><label>이름 *</label>
+        <input type="text" id="c-label" value="${esc(c.label)}" placeholder="예: 시그니처" autocomplete="off"></div>
+    </div>
+    <button class="cta" id="catSave">저장</button>`;
+  $("#mask").classList.add("on"); $("#sheet").classList.add("on");
+  $("#catSave").addEventListener("click", ()=>{
+    const label = $("#c-label").value.trim();
+    const emo = $("#c-emo").value.trim() || "🥤";
+    if(!label){ toast("이름을 입력해 주세요"); return; }
+    if(idx === null) data.cats.push({id:uid(), label:label, emo:emo});
+    else { data.cats[idx].label = label; data.cats[idx].emo = emo; }
+    persist(); closeSheet(); renderCats(); renderHome();
+    toast(idx===null ? "카테고리를 추가했어요" : "수정했어요");
+  });
+}
+function delCat(idx){
+  if(data.cats.length <= 1){ toast("카테고리는 하나 이상 있어야 해요"); return; }
+  const c = data.cats[idx];
+  const used = data.drinks.filter(d=>d.cat===c.id);
+  const msg = used.length
+    ? `“${c.label}” 안의 레시피 ${used.length}개도 함께 삭제됩니다. 되돌릴 수 없어요.`
+    : `“${c.label}”를 삭제할까요?`;
+  confirmBox("카테고리 삭제", msg, used.length ? "함께 삭제" : "삭제", ()=>{
+    used.forEach(d=>{ rm(data.mastered, d.id); rm(data.needReview, d.id); });
+    data.drinks = data.drinks.filter(d=>d.cat !== c.id);
+    data.cats.splice(idx,1);
+    if(state.filter === c.id) state.filter = "all";
+    persist(); renderCats(); renderHome(); renderList();
+    toast(used.length ? `카테고리와 레시피 ${used.length}개를 삭제했어요` : "삭제했어요");
+  });
+}
+$("#catAdd").addEventListener("click", ()=>openCatSheet(null));
+
+document.querySelectorAll("#enSeg button").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    data.enCase = b.dataset.en; persist();
+    document.querySelectorAll("#enSeg button").forEach(x=>x.classList.toggle("on", x.dataset.en === data.enCase));
+    renderList();
+    toast("표기를 바꿨어요");
+  });
+});
+
+/* ---------- 테마 ---------- */
+const THEME_BAR = {cream:"#F7F3EE", dark:"#14110E", green:"#F1F6F1"};
+function applyTheme(){
+  document.body.setAttribute("data-theme", data.theme);
+  const m = document.querySelector('meta[name="theme-color"]');
+  if(m) m.setAttribute("content", THEME_BAR[data.theme] || "#F7F3EE");
+  document.querySelectorAll("#themeBtns .theme-b").forEach(b=>{
+    b.classList.toggle("on", b.dataset.theme === data.theme);
+  });
+}
+document.querySelectorAll("#themeBtns .theme-b").forEach(b=>{
+  b.addEventListener("click", ()=>{ data.theme = b.dataset.theme; persist(); applyTheme(); });
+});
+
+function renderSettings(){
+  applyTheme();
+  renderPinCard();
+  renderCats();
+  document.querySelectorAll("#enSeg button").forEach(b=>b.classList.toggle("on", b.dataset.en === data.enCase));
+  $("#cntDrinks").textContent = liveDrinks().length;
+  $("#cntShelf").textContent = data.shelf.length;
+  $("#cntMastered").textContent = data.mastered.length;
+  renderStorageCard();
+  $("#expBox").style.display = "none";
+}
+
+/* 데이터가 얼마나 안전한 상태인지 한자리에서 보여준다.
+   저장 가능 여부 · 홈 화면 실행 여부 · 브라우저 보호 여부 · 마지막 백업. */
+function renderStorageCard(){
+  const box = $("#setStatus"); if(!box) return;
+
+  if(!Store.available){
+    box.innerHTML = `<div class="setcard statuscard warn">
+      <h4>저장이 막혀 있어요</h4>
+      <p>파일을 직접 열었거나 사파리 비공개 브라우징 상태면 저장소가 잠깁니다. 지금 입력한 내용은 앱을 닫으면 사라져요. 아래에서 백업 파일을 만들어 두고, 저장이 되는 방식으로 열어 주세요.</p></div>`;
+    return;
+  }
+
+  const home = isStandalone();
+  const rows = [];
+  rows.push(home
+    ? ["ok", "홈 화면 앱으로 실행 중", "저장 데이터가 지워질 위험이 가장 낮은 상태예요."]
+    : ["warn", "사파리 탭에서 실행 중", "공유 버튼 → 홈 화면에 추가 로 넣어두면 데이터가 훨씬 안전해집니다."]);
+
+  if(persistState === "granted")
+    rows.push(["ok", "브라우저가 저장 데이터를 보호 중", "저장 공간이 부족해도 이 앱 데이터를 먼저 지우지 않습니다."]);
+  else if(persistState === "denied")
+    rows.push(["warn", "브라우저 보호는 못 받는 중", "그래서 백업 파일이 더 중요합니다."]);
+
+  const b = data.backup;
+  const days = b && b.at ? dayGap(b.at, ymd(new Date())) : null;
+  rows.push(days === null
+    ? ["warn", "아직 백업한 적이 없어요", "기기를 바꾸거나 사파리 데이터를 지우면 되돌릴 방법이 없습니다."]
+    : (days >= 14
+      ? ["warn", `마지막 백업 ${days}일 전`, "그 뒤로 바뀐 내용은 지금 백업이 없으면 사라집니다."]
+      : ["ok", days === 0 ? "오늘 백업했어요" : `마지막 백업 ${days}일 전`, "백업 파일은 파일 앱의 iCloud Drive에 두면 기기를 바꿔도 남습니다."]));
+
+  const worst = rows.some(r => r[0] === "warn") ? "warn" : "ok";
+  box.innerHTML = `<div class="setcard statuscard ${worst}">
+    <h4>데이터 상태</h4>
+    ${rows.map(([k, t, d])=>`<p style="margin:0 0 8px"><b>${k === "ok" ? "✓" : "!"} ${esc(t)}</b><br>${esc(d)}</p>`).join("")}
+    <p style="margin:0">레시피는 이 기기 안에만 저장되고, 서버로 나가는 통신은 없습니다.</p>
+  </div>`;
+}
+
+function backupJSON(){
+  const copy = {};
+  Object.keys(data).forEach(k=>{ if(k !== "pin") copy[k] = data[k]; });
+  return JSON.stringify({app:"brewnote", v:1, exportedAt:new Date().toISOString(), data:copy}, null, 2);
+}
+function stamp(){
+  const n = new Date(), p = x=>String(x).padStart(2,"0");
+  return n.getFullYear()+p(n.getMonth()+1)+p(n.getDate())+"-"+p(n.getHours())+p(n.getMinutes());
+}
+function saveBackupFile(){
+  try{
+    const blob = new Blob([backupJSON()], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "암기쥐-백업-"+stamp()+".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1500);
+    markBackedUp();
+    toast("백업 파일을 저장했어요");
+  }catch(e){ toast("저장이 안 돼요. 텍스트로 복사해 주세요"); }
+}
+$("#expFile").addEventListener("click", saveBackupFile);
+$("#expText").addEventListener("click", ()=>{
+  const box = $("#expBox");
+  box.value = backupJSON(); box.style.display = "block";
+  box.select();
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(box.value).then(()=>{ markBackedUp(); toast("복사했어요"); },
+                                                 ()=>toast("길게 눌러 복사해 주세요"));
+  } else toast("길게 눌러 복사해 주세요");
+});
+$("#impFile").addEventListener("click", ()=>$("#fileInput").click());
+$("#fileInput").addEventListener("change", (e)=>{
+  const f = e.target.files && e.target.files[0]; if(!f) return;
+  const rd = new FileReader();
+  rd.onload = ()=>{ applyBackup(String(rd.result)); e.target.value=""; };
+  rd.onerror = ()=>toast("파일을 읽지 못했어요");
+  rd.readAsText(f);
+});
+$("#impText").addEventListener("click", ()=>{
+  const t = $("#impBox").value.trim();
+  if(!t){ toast("붙여넣은 내용이 없어요"); return; }
+  applyBackup(t);
+});
+function applyBackup(text){
+  let parsed;
+  try{ parsed = JSON.parse(text); }catch(e){ toast("백업 형식이 아니에요"); return; }
+  const d = parsed && parsed.data ? parsed.data : parsed;
+  if(!d || !Array.isArray(d.drinks)){ toast("레시피 데이터를 찾지 못했어요"); return; }
+  confirmBox("백업 복원", `레시피 ${d.drinks.length}개를 불러오고 현재 데이터를 덮어쓸까요?`, "복원", ()=>{
+    const keepMode = (d.mode === "blank" || d.mode === "flip") ? d.mode : data.mode;
+    const keepTheme = ["cream","dark","green"].indexOf(d.theme) >= 0 ? d.theme : data.theme;
+    const keepCats = (Array.isArray(d.cats) && d.cats.length)
+      ? d.cats.map(c=>({id:String(c.id||uid()), label:String(c.label||"분류"), emo:String(c.emo||"🥤")}))
+      : data.cats;
+    const cleanSub = s => ({
+      id:String(s.id||uid()), name:String(s.name||""),
+      ing:Array.isArray(s.ing)?s.ing.map(p=>[String(p[0]||""),String(p[1]||"")]):[],
+      steps:Array.isArray(s.steps)?s.steps.map(String):[], tip:String(s.tip||""),
+      place:String(s.place||""), dur:String(s.dur||"")
+    });
+    const keepEn = ["as-is","upper","lower"].indexOf(d.enCase) >= 0 ? d.enCase : data.enCase;
+    const keepShelf = Array.isArray(d.shelf) ? d.shelf.map(s=>({
+      id:String(s.id||uid()), name:String(s.name||""), place:String(s.place||""),
+      dur:String(s.dur||""), note:String(s.note||"")
+    })) : [];
+    const keepMemos = Array.isArray(d.memos) ? d.memos.map(m=>({
+      id:String(m.id||uid()), text:String(m.text||""), at:String(m.at||""), pin:!!m.pin
+    })).filter(m=>m.text) : [];
+    data = {v:1, mode:keepMode, theme:keepTheme, enCase:keepEn, pin:data.pin, visit:(d.visit || data.visit), cats:keepCats, shelf:keepShelf, memos:keepMemos,
+      /* 새 백업은 공용 부재료 목록을 갖고 있고, 예전 백업은 레시피 안에 부재료가 박혀 있다.
+         둘 다 받아서 아래 liftSubs로 하나의 모양으로 맞춘다 */
+      subs:Array.isArray(d.subs)?d.subs.map(cleanSub):[],
+      drinks:d.drinks.map(x=>({
+        id:x.id||uid(), cat:x.cat, name:String(x.name||""), en:String(x.en||""),
+        temp:String(x.temp||""), cups:Array.isArray(x.cups)?x.cups.map(String):(x.cup?[String(x.cup)]:[]),
+        ing:Array.isArray(x.ing)?x.ing.map(p=>[String(p[0]||""),String(p[1]||"")]):[],
+        steps:Array.isArray(x.steps)?x.steps.map(String):[], tip:String(x.tip||""),
+        arch:!!x.arch,
+        subRefs:Array.isArray(x.subRefs)?x.subRefs.map(String):[],
+        subs:Array.isArray(x.subs)?x.subs.map(cleanSub):[]
+      })), mastered:Array.isArray(d.mastered)?d.mastered:[], needReview:Array.isArray(d.needReview)?d.needReview:[]};
+    liftSubs(data);
+    data.drinks.forEach(x=>{ x.subRefs = (x.subRefs||[]).filter(id=>data.subs.some(s=>s.id===id)); });
+    persist(); applyTheme(); $("#impBox").value=""; toast("복원했어요"); go("home");
+  });
+}
+const SHELF_SAMPLES = [
+  {name:"개봉한 우유",    place:"냉장", dur:"5일",  note:"개봉일 라벨 부착"},
+  {name:"휘핑크림",       place:"냉장", dur:"8시간", note:""},
+  {name:"콜드브루 원액",  place:"냉장", dur:"7일",  note:""},
+  {name:"에스프레소 샷",  place:"실온", dur:"10초", note:"뽑은 즉시 사용"},
+  {name:"과일청",         place:"냉장", dur:"14일", note:""}
+];
+
+/* 샘플 다시 넣기 — 이미 같은 이름이 있으면 건너뜀 */
+function loadSamples(){
+  const have = {};
+  data.drinks.forEach(d=>{ have[d.name] = true; });
+  const fresh = seed().filter(s=>!have[s.name]);
+  const haveShelf = {};
+  data.shelf.forEach(s=>{ haveShelf[s.name] = true; });
+  const freshShelf = SHELF_SAMPLES.filter(s=>!haveShelf[s.name])
+    .map(s=>({id:uid(), name:s.name, place:s.place, dur:s.dur, note:s.note}));
+  if(!fresh.length && !freshShelf.length){ toast("샘플이 이미 다 들어 있어요"); return; }
+  data.drinks = data.drinks.concat(fresh);
+  data.shelf = data.shelf.concat(freshShelf);
+  persist();
+  const parts = [];
+  if(fresh.length) parts.push("레시피 " + fresh.length + "개");
+  if(freshShelf.length) parts.push("개봉 항목 " + freshShelf.length + "개");
+  toast(parts.join(" · ") + " 불러왔어요");
+  renderList(); renderHome(); renderSettings();
+}
+$("#loadSamples").addEventListener("click", loadSamples);
+
+$("#resetProg").addEventListener("click", ()=>{
+  confirmBox("학습 기록 초기화", "외운 표시와 복습 목록을 모두 지웁니다. 레시피는 그대로 남아요.", "초기화", ()=>{
+    data.mastered = []; data.needReview = []; persist(); renderSettings(); toast("초기화했어요");
+  });
+});
+$("#wipeAll").addEventListener("click", ()=>{
+  confirmBox("전체 데이터 삭제", "레시피와 학습 기록을 모두 지웁니다. 백업 파일이 없으면 복구할 수 없어요.", "전부 삭제", ()=>{
+    data = {v:1, mode:data.mode, theme:data.theme, enCase:data.enCase, pin:data.pin, visit:data.visit, cats:data.cats, shelf:[], memos:[], subs:[], drinks:[], mastered:[], needReview:[]};
+    Store.clear(); persist(); renderSettings(); toast("모두 삭제했어요"); go("home");
+  });
+});
+
+/* ---------- 시계 ---------- */
+function tick(){ const n=new Date(); $("#clock").textContent = n.getHours()+":"+String(n.getMinutes()).padStart(2,"0"); }
+tick(); setInterval(tick, 30000);
+
+/* ---------- 저장 안정성 ----------
+   홈 화면에서 실행 중인지, 브라우저가 저장 데이터를 보호해 주는지.
+   둘 다 "레시피가 사라지지 않는가"에 직접 영향을 준다. */
+function isStandalone(){
+  return window.matchMedia("(display-mode: standalone)").matches
+      || window.navigator.standalone === true;
+}
+let persistState = "unknown";           // unknown · granted · denied · unsupported
+function checkPersist(){
+  if(!navigator.storage || !navigator.storage.persist){
+    persistState = "unsupported";
+    return;
+  }
+  /* 이미 보호 중이면 다시 요청하지 않는다 */
+  navigator.storage.persisted().then(already=>{
+    if(already){ persistState = "granted"; renderStorageCard(); return; }
+    return navigator.storage.persist().then(ok=>{
+      persistState = ok ? "granted" : "denied";
+      renderStorageCard();
+    });
+  }).catch(()=>{ persistState = "unknown"; });
+}
+
+applyTheme();
+initVisit();
+renderHome();
+checkPersist();
+/* 옮기는 김에 이름이 겹쳤던 부재료는 나눠 두었다. 조용히 바꾸면 놀라니까 한 번 알려준다 */
+if(_lift.split) setTimeout(()=>toast(`배합이 다른 같은 이름 부재료 ${_lift.split}개를 따로 나눴어요`), 900);
+if(data.pin) openLock("enter");
